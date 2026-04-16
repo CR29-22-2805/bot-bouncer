@@ -20,7 +20,7 @@ export async function handleInstallOrUpgrade (_: AppInstall | AppUpgrade, contex
         await addControlSubredditJobs(context);
     } else {
         // Delete cached control sub settings
-        await context.redis.del("controlSubSettings");
+        await context.redis.del("controlSubSettings", "evaluatorVariablesHash");
         await addClientSubredditJobs(context);
 
         // Keep this indefinitely, or until everyone has been forced onto a new version for at least a week.
@@ -32,7 +32,6 @@ export async function handleInstallOrUpgrade (_: AppInstall | AppUpgrade, contex
     // Remove legacy redis keys
     const obsoleteKeys = [
         "evaluatorVariables",
-        "controlSubSettings",
         "clientSubWikiUpdateCron",
         "oneOffReaffirmation",
         "EvaluatorStats",
