@@ -46,7 +46,7 @@ Users who have been unfairly banned by Bot Bouncer should be encouraged to modma
 
 # Change History
 
-## v1.28.0
+## v1.28.1
 
 * Fixed an issue that prevents classification changes working after April 15 2026 on some subreddits
 * Improve wording on "Report user to Bot Bouncer" form to clarify that review is manual
