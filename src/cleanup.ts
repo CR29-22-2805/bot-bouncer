@@ -173,9 +173,6 @@ export async function cleanupDeletedAccounts (event: ScheduledJobEvent<JSONObjec
                     case UserStatus.Organic:
                         newFlair = PostFlairTemplate.Organic;
                         break;
-                    case UserStatus.Declined:
-                        newFlair = PostFlairTemplate.Declined;
-                        break;
                     case UserStatus.Service:
                         newFlair = PostFlairTemplate.Service;
                         break;
@@ -322,7 +319,7 @@ async function handleDeletedAccountControlSub (username: string, context: Trigge
                 console.log(`Cleanup: Post deleted for ${username}. Now deleted ${deletedPosts} posts.`);
 
                 if (status.userStatus !== newStatus) {
-                    await txn.set(`ignoreflairchange:${post.id}`, "true", { expiration: addHours(new Date(), 1) });
+                    await txn.set(`ignoreflairchangeForPost:${post.id}`, "true", { expiration: addHours(new Date(), 1) });
 
                     await context.reddit.setPostFlair({
                         postId: post.id,

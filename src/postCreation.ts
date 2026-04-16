@@ -6,7 +6,7 @@ import { addDays, addHours, addMinutes, addSeconds, subWeeks } from "date-fns";
 import { getControlSubSettings } from "./settings.js";
 import pluralize from "pluralize";
 import { queueSendFeedback } from "./submissionFeedback.js";
-import { formatTimeSince, sendMessageToWebhook, updateWebhookMessage } from "./utility.js";
+import { formatTimeSince, isBannedWithCache, sendMessageToWebhook, updateWebhookMessage } from "./utility.js";
 
 export const statusToFlair: Record<UserStatus, PostFlairTemplate> = {
     [UserStatus.Pending]: PostFlairTemplate.Pending,
@@ -15,7 +15,6 @@ export const statusToFlair: Record<UserStatus, PostFlairTemplate> = {
     [UserStatus.Organic]: PostFlairTemplate.Organic,
     [UserStatus.Purged]: PostFlairTemplate.Purged,
     [UserStatus.Retired]: PostFlairTemplate.Retired,
-    [UserStatus.Declined]: PostFlairTemplate.Declined,
     [UserStatus.Inactive]: PostFlairTemplate.Inactive,
 };
 
@@ -24,6 +23,7 @@ const SUBMISSION_DETAILS = "submissionDetails";
 
 export interface AsyncSubmission {
     user: UserExtended;
+    submitter?: string;
     details: UserDetails;
     commentToAdd?: string;
     removeComment?: boolean;
@@ -32,6 +32,7 @@ export interface AsyncSubmission {
         comment: string;
     };
     immediate: boolean;
+    reportContext?: string;
     evaluatorsChecked: boolean;
 }
 
@@ -133,6 +134,18 @@ async function createNewSubmission (submission: AsyncSubmission, context: Trigge
     }
 
     console.log(`Post Creation: Created new post for ${submission.user.username} with status ${submission.details.userStatus}.`);
+
+    if (submission.reportContext && submission.submitter && submission.reportContext.trim().length > 0) {
+        let modNoteText = `u/${submission.submitter} reported: ${submission.reportContext.trim()}`;
+        if (modNoteText.length > 250) {
+            modNoteText = modNoteText.substring(0, 247) + "...";
+        }
+        await context.reddit.addModNote({
+            user: submission.user.username,
+            subreddit: CONTROL_SUBREDDIT,
+            note: modNoteText,
+        });
+    }
 }
 
 export enum PostCreationQueueResult {
@@ -153,6 +166,11 @@ export async function queuePostCreation (submission: AsyncSubmission, context: T
     if (currentStatus) {
         console.log(`Post Creation: User ${submission.user.username} already has a status of ${currentStatus.userStatus}.`);
         return PostCreationQueueResult.AlreadyInDatabase;
+    }
+
+    if (await isBannedWithCache(submission.user.username, context)) {
+        console.log(`Post Creation: User ${submission.user.username} is banned from the control subreddit.`);
+        return PostCreationQueueResult.Error;
     }
 
     let score = submission.immediate ? new Date().getTime() / 1000 : new Date().getTime();

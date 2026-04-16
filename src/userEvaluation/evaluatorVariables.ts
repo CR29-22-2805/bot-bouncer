@@ -111,7 +111,7 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
     const variables = yamlToVariables(yamlStr, extraVariables);
 
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
-        const evaluator = new Evaluator({} as unknown as TriggerContext, undefined, variables);
+        const evaluator = new Evaluator({} as unknown as TriggerContext, [], undefined, variables);
         const overriddenVariables = evaluator.getVariableOverrides();
         for (const [key, value] of Object.entries(overriddenVariables)) {
             variables[`${evaluator.shortname}:${key}`] = value as JSONValue;
@@ -128,7 +128,6 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
         // Do a sanity check to ensure that nobody's done anything silly with Bot Group Advanced.
         const matchedMods: Record<string, string> = {};
         for (const moderator of ["fsv", "Leonichol", "NeedAGoodUsername"]) {
-            const evaluator = new EvaluateBotGroupAdvanced(context, undefined, variables);
             const user = await getUserExtended(moderator, context);
             if (!user) {
                 console.warn(`Evaluator Variables: User ${moderator} not found, skipping.`);
@@ -139,7 +138,10 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
                 sort: "new",
                 limit: 100,
             }).all();
-            if (await evaluator.evaluate(user, userHistory)) {
+
+            const evaluator = new EvaluateBotGroupAdvanced(context, userHistory, undefined, variables);
+
+            if (await evaluator.evaluate(user)) {
                 const reasons: string[] = [];
                 for (const reason of evaluator.hitReasons ?? []) {
                     if (typeof reason === "string") {
@@ -271,7 +273,7 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
     await context.redis.del(EXTRA_VARIABLES_UPDATED_KEY);
 }
 
-export async function invalidEvaluatorVariableCondition (variables: Record<string, JSONValue>, context: JobContext): Promise<ValidationIssue[]> {
+export async function invalidEvaluatorVariableCondition (variables: Record<string, JSONValue>, context: JobContext, calledFromTest = false): Promise<ValidationIssue[]> {
     const results: ValidationIssue[] = [];
 
     // Now check for inconsistent types.
@@ -290,7 +292,7 @@ export async function invalidEvaluatorVariableCondition (variables: Record<strin
 
     // Now check evaluator-specific validators
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
-        const evaluator = new Evaluator({} as unknown as TriggerContext, undefined, variables);
+        const evaluator = new Evaluator({} as unknown as TriggerContext, [], undefined, variables);
         const errors = evaluator.validateVariables();
         if (errors.length > 0) {
             results.push(...errors.map(r => ({ severity: r.severity, message: `${evaluator.name}: ${r.message.length < 200 ? r.message : r.message.substring(0, 197) + "..."}` })));
@@ -336,6 +338,18 @@ export async function invalidEvaluatorVariableCondition (variables: Record<strin
 
     for (const sub of await checkNonexistentSubs(Array.from(nsfwsubs), context)) {
         results.push({ severity: "warning", message: `Subreddit r/${sub} in NSFW karma farming list does not exist.` });
+    }
+
+    if (!calledFromTest) { // For where this is called from unit tests with a fake context
+        const kfSubsCountKey = "evaluatorVariablesKarmaFarmingSubsCount";
+        const currentCount = await context.redis.get(kfSubsCountKey);
+        const newCount = subs.size + nsfwsubs.size;
+
+        if (currentCount && Math.abs(parseInt(currentCount) - newCount) > 500) {
+            results.push({ severity: "error", message: `There are ${newCount} subreddits in the karma farming lists, which is a large change from the previous count of ${currentCount}. This may indicate an error in the formatting of the list.` });
+        } else {
+            await context.redis.set(kfSubsCountKey, newCount.toString());
+        }
     }
 
     return results;
