@@ -50,17 +50,22 @@ export enum AppSetting {
     BanMessage = "banMessage",
     AutoWhitelist = "autoWhitelist",
     ExemptApprovedUsers = "exemptApprovedUsers",
-    ReportPotentialBots = "reportPotentialBots",
     AddModNoteOnClassificationChange = "addModNoteOnClassificationChange",
     ModmailNote = "clientModmailNote",
     AddModmailIfNotBannedYet = "addModmailIfNotBannedYet",
     Digest = "dailyDigest",
+    DigestNewMessageEachDay = "dailyDigestNewMessageEachDay",
     DigestFrequency = "dailyDigestFrequency",
     DigestAsModNotification = "dailyDigestAsModNotification",
     DigestIncludeReported = "dailyDigestIncludeReported",
     DigestIncludeBanned = "dailyDigestIncludeBanned",
     DigestIncludeUnbanned = "dailyDigestIncludeUnbanned",
     UpgradeNotifier = "upgradeNotifier",
+
+    // App-scoped secrets
+    OpenAIKey = "openAIKey",
+    OpenAIAdminKey = "openAIAdminKey",
+    OpenAIProjectId = "openAIProjectId",
 }
 
 export enum ActionType {
@@ -156,20 +161,6 @@ export const appSettings: SettingsFormField[] = [
     },
     {
         type: "group",
-        label: "Local bot detection",
-        helpText: "Options relating to detecting and reporting bots on your subreddit",
-        fields: [
-            {
-                type: "boolean",
-                name: AppSetting.ReportPotentialBots,
-                label: "Report potential bots to /r/BotBouncer",
-                helpText: "Automatically reports newly detected bots to /r/BotBouncer",
-                defaultValue: true,
-            },
-        ],
-    },
-    {
-        type: "group",
         label: "Actions Summary",
         fields: [
             {
@@ -178,6 +169,13 @@ export const appSettings: SettingsFormField[] = [
                 name: AppSetting.Digest,
                 helpText: "If enabled, you will receive a daily message with a summary of actions taken by Bot Bouncer in the previous 24 hours, if any.",
                 defaultValue: false,
+            },
+            {
+                type: "boolean",
+                label: "Create a new Modmail conversation for each summary",
+                name: AppSetting.DigestNewMessageEachDay,
+                helpText: "If enabled, a new modmail conversation will be created for each summary message. If disabled, the bot will reply to the previous summary message when sending a new summary.",
+                defaultValue: true,
             },
             {
                 type: "select",
@@ -232,6 +230,27 @@ export const appSettings: SettingsFormField[] = [
             },
         ],
     },
+    {
+        type: "string",
+        label: "OpenAI API Key",
+        name: AppSetting.OpenAIKey,
+        scope: "app",
+        isSecret: true,
+    },
+    {
+        type: "string",
+        label: "OpenAI API Admin Key",
+        name: AppSetting.OpenAIAdminKey,
+        scope: "app",
+        isSecret: true,
+    },
+    {
+        type: "string",
+        label: "OpenAI API Project ID",
+        name: AppSetting.OpenAIProjectId,
+        scope: "app",
+        isSecret: true,
+    },
 ];
 
 export interface ControlSubSettings {
@@ -254,6 +273,7 @@ export interface ControlSubSettings {
     observerSubreddits?: string[];
     postCreationQueueProcessingEnabled?: boolean;
     postCreationQueueAlertLevel?: number;
+    createAISummaryOnNewPosts?: boolean;
     allowClassificationQueries?: boolean;
     allowBans?: boolean;
     allowUnbans?: boolean;
@@ -261,6 +281,9 @@ export interface ControlSubSettings {
     redosCheckerEnabled?: boolean;
     evaluatorVariableUpdatesEnabled?: boolean;
     enableModQueueRemoval?: boolean;
+    openAIMinimumAccountAgeInDays?: number;
+    openAIMinimumContentCount?: number;
+    openAINotificationsWebhook?: string;
     appRemovedMessage?: string;
 }
 
@@ -288,6 +311,7 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         observerSubreddits: { type: "array", items: { type: "string" }, nullable: true },
         postCreationQueueProcessingEnabled: { type: "boolean", nullable: true },
         postCreationQueueAlertLevel: { type: "number", nullable: true },
+        createAISummaryOnNewPosts: { type: "boolean", nullable: true },
         allowClassificationQueries: { type: "boolean", nullable: true },
         allowBans: { type: "boolean", nullable: true },
         allowUnbans: { type: "boolean", nullable: true },
@@ -296,6 +320,9 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         redosCheckerEnabled: { type: "boolean", nullable: true },
         evaluatorVariableUpdatesEnabled: { type: "boolean", nullable: true },
         enableModQueueRemoval: { type: "boolean", nullable: true },
+        openAIMinimumAccountAgeInDays: { type: "number", nullable: true },
+        openAIMinimumContentCount: { type: "number", nullable: true },
+        openAINotificationsWebhook: { type: "string", nullable: true },
         appRemovedMessage: { type: "string", nullable: true },
     },
     required: ["evaluationDisabled", "trustedSubmitters", "reporterBlacklist"],

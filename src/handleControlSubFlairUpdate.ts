@@ -60,7 +60,7 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
         return;
     }
 
-    const ignoreCheck = await context.redis.exists(`ignoreflairchange:${event.post.id}`);
+    const ignoreCheck = await context.redis.exists(`ignoreflairchangeForPost:${event.post.id}`);
     if (ignoreCheck) {
         return;
     }
@@ -82,7 +82,7 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
         }
 
         if (event.author.name !== context.appSlug) {
-            await context.redis.set(`userStatusOverride~${username}`, event.author.name, { expiration: addHours(new Date(), 1) });
+            await context.redis.set(`userStatusOverrideValue~${username}`, event.author.name, { expiration: addHours(new Date(), 1) });
         }
 
         await context.reddit.setPostFlair({
@@ -106,7 +106,7 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
     if (event.author.name !== context.appSlug && match) {
         const status = match[1] as UserStatus;
         const reviewPeriod = parseInt(match[2], 10);
-        await context.redis.set(`userStatusOverride~${username}`, event.author.name, { expiration: addHours(new Date(), 1) });
+        await context.redis.set(`userStatusOverrideValue~${username}`, event.author.name, { expiration: addHours(new Date(), 1) });
 
         await context.reddit.setPostFlair({
             postId: event.post.id,
@@ -125,10 +125,10 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
     const currentStatus = await getUserStatus(username, context);
 
     let operator = event.author.name;
-    const overrideOperator = await context.redis.get(`userStatusOverride~${username}`);
+    const overrideOperator = await context.redis.get(`userStatusOverrideValue~${username}`);
     if (overrideOperator) {
         operator = overrideOperator;
-        await context.redis.del(`userStatusOverride~${username}`);
+        await context.redis.del(`userStatusOverrideValue~${username}`);
     }
 
     let newStatus: UserDetails;
@@ -153,13 +153,15 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
 
     const post = await context.reddit.getPostById(event.post.id);
 
-    // Look for Account Properties comment and delete it.
+    // Look for Account Properties/OpenAI Summary comment and delete it.
     if (postFlair !== UserStatus.Pending) {
         const comment = await post.comments.all();
-        const commentToDelete = comment.find(c => c.authorName === context.appSlug && c.body.includes("## Account Properties"));
+        const commentToDelete = comment.filter(c => c.authorName === context.appSlug && (c.body.includes("## Account Properties") || c.body.trim().startsWith("**OpenAI Summary**")));
 
-        if (commentToDelete) {
-            await commentToDelete.delete();
+        if (commentToDelete.length > 0) {
+            for (const c of commentToDelete) {
+                await c.delete();
+            }
         }
 
         if (post.numberOfReports > 0) {

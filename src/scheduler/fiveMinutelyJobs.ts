@@ -1,6 +1,7 @@
 import { JobContext } from "@devvit/public-api";
 import { CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import { processHighlightedModmailQueue } from "../modmail/unhighlighter.js";
+import { gatherTokenStatistics } from "../aiAnalysis/statistics.js";
 
 export async function handleFiveMinutelyJob (_: unknown, context: JobContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
@@ -14,16 +15,11 @@ export async function handleFiveMinutelyJob (_: unknown, context: JobContext) {
     });
 
     await context.scheduler.runJob({
-        name: ControlSubredditJob.CheckUpgradeNotifierForLegacySubs,
-        runAt: new Date(),
-        data: { firstRun: true },
-    });
-
-    await context.scheduler.runJob({
         name: ControlSubredditJob.AccountReview,
         runAt: new Date(),
         data: { firstRun: true },
     });
 
     await processHighlightedModmailQueue(context);
+    await gatherTokenStatistics(context);
 }

@@ -55,7 +55,7 @@ test("Invalid regex", async () => {
         ],
     };
 
-    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext);
+    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext, true);
     expect(result.length).toBe(1);
 });
 
@@ -66,7 +66,7 @@ test("Regex with || condition", async () => {
         ],
     };
 
-    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext);
+    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext, true);
     expect(result.length).toBe(1);
     console.log(result);
 });
@@ -82,7 +82,7 @@ test("Regex with badly formed array", async () => {
         ],
     };
 
-    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext);
+    const result = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext, true);
     expect(result.length).toBe(1);
 });
 
@@ -100,6 +100,6 @@ group1:
         - AccidentalSlapstick
 `;
     const variables = yamlToVariables(yaml);
-    const results = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext);
+    const results = await invalidEvaluatorVariableCondition(variables, {} as unknown as JobContext, true);
     expect(results.length).toBe(0);
 });

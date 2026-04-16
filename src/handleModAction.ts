@@ -8,7 +8,7 @@ import { addDays, addMinutes, addSeconds, subMinutes } from "date-fns";
 import { validateAndSaveAppealConfig } from "./modmail/autoAppealHandling.js";
 import { checkIfStatsNeedUpdating } from "./scheduler/sixHourlyJobs.js";
 import { handleObserverSubsWikiPageCopy } from "./statistics/observerSubWikiPageCopy.js";
-import { isModeratorWithCache, sendMessageToWebhook } from "./utility.js";
+import { isModeratorWithCache, removeCachedBanStatus, sendMessageToWebhook } from "./utility.js";
 import { getExtendedDevvit } from "devvit-helpers";
 import { getInstallDate } from "./installActions.js";
 
@@ -130,6 +130,8 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
                 queueConfigWikiCheck(ConfigWikiPage.ControlSubSettings, event.moderator.name, 1, context),
             ]);
         }
+
+        await context.redis.del("aiPromptCache");
     }
 
     /**
@@ -168,6 +170,10 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
             + `[${post.title}](https://www.reddit.com${post.permalink})`;
 
         await sendMessageToWebhook(controlSubSettings.monitoringWebhook, message);
+    }
+
+    if ((event.action === "banuser" || event.action === "unbanuser") && event.targetUser) {
+        await removeCachedBanStatus(event.targetUser.name, context);
     }
 }
 

@@ -28,13 +28,13 @@ import { asyncWikiUpdate } from "./statistics/asyncWikiUpdate.js";
 import { generateBioStatisticsReport, updateBioStatisticsJob } from "./statistics/userBioStatistics.js";
 import { continueDataExtract } from "./modmail/dataExtract.js";
 import { redosChecker } from "./userEvaluation/redosChecker.js";
-import { checkPermissionQueueItems, handlePermissionCheckEnqueueJob } from "./permissionChecks.js";
+import { checkPermissionQueueItems, handlePermissionCheckEnqueueJob } from "./permissionChecksAndInstallDates.js";
 import { handleFiveMinutelyJob } from "./scheduler/fiveMinutelyJobs.js";
-import { processLegacySubUpgradeNotifications } from "./upgradeNotifierForLegacySubs.js";
 import { checkAccountsForReview } from "./modmail/accountReview.js";
 import { pendingUserFinder } from "./statistics/pendingUserFinder.js";
 import { doBotSleuthBotExtract } from "./botSleuthBotExtract.js";
 import { handleMinutelyJob } from "./scheduler/handleMinutelyJob.js";
+import { generateOpenAISummary, openAISummaryLookupAndRespond } from "./aiAnalysis/createAISummary.js";
 
 Devvit.addSettings(appSettings);
 
@@ -236,11 +236,6 @@ Devvit.addSchedulerJob({
 });
 
 Devvit.addSchedulerJob({
-    name: ControlSubredditJob.CheckUpgradeNotifierForLegacySubs,
-    onRun: processLegacySubUpgradeNotifications,
-});
-
-Devvit.addSchedulerJob({
     name: ControlSubredditJob.AccountReview,
     onRun: checkAccountsForReview,
 });
@@ -253,6 +248,16 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ControlSubredditJob.BotSleuthBotExtract,
     onRun: doBotSleuthBotExtract,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.OpenAISummaryGather,
+    onRun: generateOpenAISummary,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.OpenAISummaryLookup,
+    onRun: openAISummaryLookupAndRespond,
 });
 
 /**

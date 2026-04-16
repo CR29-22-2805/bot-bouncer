@@ -1,6 +1,6 @@
 import { Context, MenuItemOnPressEvent, JSONObject, FormOnSubmitEvent, FormFunction, TriggerContext } from "@devvit/public-api";
 import { CONTROL_SUBREDDIT } from "./constants.js";
-import { getPostOrCommentById, getUserOrUndefined, isModeratorWithCache } from "./utility.js";
+import { getPostOrCommentById, getUserOrUndefined, isBannedWithCache, isModeratorWithCache } from "./utility.js";
 import { getUserStatus, UserStatus } from "./dataStore.js";
 import { addExternalSubmissionFromClientSub } from "./externalSubmissions.js";
 import { queryForm, reportForm } from "./main.js";
@@ -19,6 +19,8 @@ enum ReportFormField {
 }
 
 export const reportFormDefinition: FormFunction = data => ({
+    title: `Report u/${data.username} to Bot Bouncer`,
+    description: "Thank you for reporting this user. Our team will review the account manually and take appropriate action.",
     fields: [
         {
             type: "paragraph",
@@ -46,7 +48,7 @@ export const reportFormDefinition: FormFunction = data => ({
 });
 
 function getAlreadyReportedKey (username: string): string {
-    return `alreadyReported:${username}`;
+    return `userAlreadyReported:${username}`;
 }
 
 async function getAlreadyReported (username: string, context: TriggerContext): Promise<boolean> {
@@ -75,7 +77,7 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
 
     const currentStatus = await getUserStatus(target.authorName, context);
     if (currentStatus) {
-        const queryableStatuses = [UserStatus.Organic, UserStatus.Declined, UserStatus.Service];
+        const queryableStatuses = [UserStatus.Organic, UserStatus.Service];
         if (queryableStatuses.includes(currentStatus.userStatus) && controlSubSettings.allowClassificationQueries) {
             context.ui.showForm(queryForm, { username: target.authorName, status: currentStatus.userStatus });
             return;
@@ -124,6 +126,11 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
         return;
     }
 
+    if (await isBannedWithCache(currentUser.username, context, CONTROL_SUBREDDIT)) {
+        context.ui.showToast("You are currently banned from r/BotBouncer, so you cannot report other users.");
+        return;
+    }
+
     const user = await getUserOrUndefined(target.authorName, context);
 
     if (!user) {
@@ -133,6 +140,7 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
 
     const canReceiveFeedback = await canUserReceiveFeedback(currentUser.username, context);
     const data = {
+        username: target.authorName,
         feedbackHelpText: canReceiveFeedback ? "You must be able to receive chat messages from /u/bot-bouncer to receive this notification" : "We've tried to send feedback for you several times but this hasn't worked. Check to make sure you can receive chats from /u/bot-bouncer. This option will return within 24h.",
         feedbackDisabled: !canReceiveFeedback,
     };
