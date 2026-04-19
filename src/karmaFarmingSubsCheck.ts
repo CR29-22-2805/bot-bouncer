@@ -212,7 +212,14 @@ async function rebalanceCohorts (context: JobContext) {
 
 export async function evaluateKarmaFarmingSubs (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     if (event.data?.firstRun && !event.data.cohort) {
-        await rebalanceCohorts(context);
+        try {
+            await rebalanceCohorts(context);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const entriesInQueue = await context.redis.global.zCard(ACCOUNTS_QUEUED_KEY);
+            console.error(`Karma Farming Subs: Error rebalancing cohorts. Entries in queue: ${entriesInQueue} Error: ${message}.`);
+        }
+
         await Promise.all([
             context.scheduler.runJob({
                 name: ControlSubredditJob.EvaluateKarmaFarmingSubs,
