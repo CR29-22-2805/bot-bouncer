@@ -1,5 +1,4 @@
 import { JobContext, TriggerContext } from "@devvit/public-api";
-import { updateMainStatisticsPage } from "../statistics/mainStatistics.js";
 import { updateSubmitterStatistics } from "../statistics/submitterStatistics.js";
 import { createTimeOfSubmissionStatistics } from "../statistics/timeOfSubmissionStatistics.js";
 import { checkDataStoreIntegrity, getFullDataStore, removeStaleRecentChangesEntries, UserDetails, UserFlag } from "../dataStore.js";
@@ -29,13 +28,10 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
         throw new Error("6 hourly jobs are only run in the control subreddit.");
     }
 
+    console.log("6 Hourly Jobs: Starting execution of 6 hourly jobs.");
+
     await removeStaleRecentChangesEntries(context);
-
-    const allData = await getFullDataStore(context, {
-        omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
-    });
-
-    const allValues = Object.values(allData);
+    console.log("6 Hourly Jobs: Removed stale recent changes entries.");
 
     await Promise.all([
         context.scheduler.runJob({
@@ -58,11 +54,24 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
             name: ControlSubredditJob.PendingUserFinder,
             runAt: addMinutes(new Date(), 3),
         }),
+
+        context.scheduler.runJob({
+            name: ControlSubredditJob.MainStatisticsUpdate,
+            runAt: addMinutes(new Date(), 4),
+        }),
     ]);
+    console.log("6 Hourly Jobs: Scheduled subsequent jobs.");
+
+    const allData = await getFullDataStore(context, {
+        omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
+        since: subMonths(new Date(), 1),
+    });
+    console.log("6 Hourly Jobs: Retrieved full data store.");
+
+    const allValues = Object.values(allData);
+    console.log(`6 Hourly Jobs: Processing statistics for ${allValues.length} user records.`);
 
     await Promise.all([
-        updateMainStatisticsPage(allValues, context),
-        updateSubmitterStatistics(allValues, context),
         createTimeOfSubmissionStatistics(allValues, context),
         updateClassificationStatistics(context),
         updateAppealStatistics(context),
@@ -81,6 +90,7 @@ export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) 
     });
 
     const allEntries = Object.entries(allData)
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         .map(([key, value]) => ({ username: key, data: value } as StatsUserEntry));
 
     await Promise.all([
@@ -89,6 +99,7 @@ export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) 
         updateSocialLinksStatistics(allEntries, context),
         updateBioStatistics(allEntries, context),
         updateDefinedHandlesStats(allEntries, context),
+        updateSubmitterStatistics(allEntries, context),
     ]);
 }
 
