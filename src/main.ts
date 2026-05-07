@@ -9,7 +9,7 @@ import { handleModmail } from "./modmail/modmail.js";
 import { handleControlSubAccountEvaluation } from "./handleControlSubAccountEvaluation.js";
 import { handleReportUser, queryFormDefinition, queryFormHandler, reportFormDefinition, reportFormHandler } from "./handleReportUser.js";
 import { handleClientCommentUpdate } from "./handleClientPostOrComment.js";
-import { handleClassificationChanges, queueRecentReclassifications } from "./handleClientSubredditClassificationChanges.js";
+import { handleClassificationChanges, processModqueueRemovalStore, queueRecentReclassifications } from "./handleClientSubredditClassificationChanges.js";
 import { handleControlSubPostDelete } from "./handleControlSubPostDelete.js";
 import { updateEvaluatorVariablesFromWikiHandler } from "./userEvaluation/evaluatorVariables.js";
 import { evaluateKarmaFarmingSubs, queueKarmaFarmingSubs } from "./karmaFarmingSubsCheck.js";
@@ -35,6 +35,9 @@ import { pendingUserFinder } from "./statistics/pendingUserFinder.js";
 import { doBotSleuthBotExtract } from "./botSleuthBotExtract.js";
 import { handleMinutelyJob } from "./scheduler/handleMinutelyJob.js";
 import { generateOpenAISummary, openAISummaryLookupAndRespond } from "./aiAnalysis/createAISummary.js";
+import { updateTokenStatsMessage } from "./aiAnalysis/statistics.js";
+import { updateMainStatisticsPage } from "./statistics/mainStatistics.js";
+import { checkUserFlaggedRechecksQueue } from "./userEvaluation/flaggedUsersRechecks.js";
 
 Devvit.addSettings(appSettings);
 
@@ -221,6 +224,11 @@ Devvit.addSchedulerJob({
 });
 
 Devvit.addSchedulerJob({
+    name: ControlSubredditJob.MainStatisticsUpdate,
+    onRun: updateMainStatisticsPage,
+});
+
+Devvit.addSchedulerJob({
     name: ControlSubredditJob.DataExtractJob,
     onRun: continueDataExtract,
 });
@@ -260,6 +268,16 @@ Devvit.addSchedulerJob({
     onRun: openAISummaryLookupAndRespond,
 });
 
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.OpenAIUpdateTokenStatsMessage,
+    onRun: updateTokenStatsMessage,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.FlaggedUsersRechecks,
+    onRun: checkUserFlaggedRechecksQueue,
+});
+
 /**
  * Jobs that run on client subreddits only
  */
@@ -272,6 +290,11 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ClientSubredditJob.HandleClassificationChanges,
     onRun: handleClassificationChanges,
+});
+
+Devvit.addSchedulerJob({
+    name: ClientSubredditJob.RemoveUsersFromModqueueAfterBan,
+    onRun: processModqueueRemovalStore,
 });
 
 Devvit.addSchedulerJob({

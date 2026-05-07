@@ -8,6 +8,7 @@ import _ from "lodash";
 import { getControlSubSettings } from "./settings.js";
 import { formatTimeSince } from "./utility.js";
 import { submitAccountForReview } from "./modmail/accountReview.js";
+import { recompressAccountInitialEvaluationResults } from "./handleControlSubAccountEvaluation.js";
 
 export const CLEANUP_LOG_KEY = "CleanupLog";
 const SUB_OR_MOD_LOG_KEY = "SubOrModLog";
@@ -37,6 +38,11 @@ export async function setCleanupForSubmittersAndMods (usernames: string[], conte
 
     await context.redis.zAdd(SUB_OR_MOD_LOG_KEY, ...usernames.map(username => ({ member: username, score: new Date().getTime() })));
     await Promise.all(usernames.map(username => setCleanupForUser(username, context.redis)));
+}
+
+export async function isUserSubmitterOrMod (username: string, context: JobContext | TriggerContext): Promise<boolean> {
+    const score = await context.redis.zScore(SUB_OR_MOD_LOG_KEY, username);
+    return score !== undefined;
 }
 
 enum UserActiveStatus {
@@ -138,13 +144,14 @@ export async function cleanupDeletedAccounts (event: ScheduledJobEvent<JSONObjec
             continue;
         }
 
+        await recompressAccountInitialEvaluationResults(username, context);
+
         let overrideCleanupDate: Date | undefined;
         const currentStatus = await getUserStatus(username, context);
 
         // If no current status is defined, then this entry should not have been reached.
         if (!currentStatus) {
-            const submitterOrModFlag = await context.redis.zScore(SUB_OR_MOD_LOG_KEY, username);
-            if (submitterOrModFlag) {
+            if (await isUserSubmitterOrMod(username, context)) {
                 console.log(`Cleanup: ${username} has no status, but was in submitter or mod log.`);
                 await setCleanupForUser(username, context.redis);
                 continue;
@@ -212,6 +219,10 @@ export async function cleanupDeletedAccounts (event: ScheduledJobEvent<JSONObjec
                 } else {
                     overrideCleanupDate = addDays(new Date(), 3);
                 }
+            }
+
+            if (currentStatus.flags?.some(flag => [UserFlag.HackedAndRecovered, UserFlag.Scammed, UserFlag.FutureNSFW].includes(flag))) {
+                await context.redis.zAdd("flaggedRechecksQueue", { member: username, score: new Date().getTime() });
             }
         } else {
             suspendedCount++;
@@ -282,7 +293,7 @@ async function handleDeletedAccount (username: string, context: TriggerContext) 
 
 async function handleDeletedAccountControlSub (username: string, context: TriggerContext) {
     const status = await getUserStatus(username, context);
-    const submitterOrModFlag = await context.redis.zScore(SUB_OR_MOD_LOG_KEY, username);
+    const submitterOrModFlag = await isUserSubmitterOrMod(username, context);
 
     if (!status && !submitterOrModFlag) {
         console.log(`Cleanup: ${username} has no status to delete.`);

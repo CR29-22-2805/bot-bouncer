@@ -1,10 +1,11 @@
 import { JobContext, TriggerContext, WikiPage, WikiPagePermissionLevel } from "@devvit/public-api";
-import { UserDetails, UserStatus } from "../dataStore.js";
+import { UserStatus } from "../dataStore.js";
 import _ from "lodash";
 import { subMonths } from "date-fns";
 import json2md from "json2md";
 import { ZMember } from "@devvit/protos";
 import { getControlSubSettings } from "../settings.js";
+import { StatsUserEntry } from "../scheduler/sixHourlyJobs.js";
 
 interface SubmitterStatistic {
     submitter: string;
@@ -14,11 +15,11 @@ interface SubmitterStatistic {
 
 const SUBMITTER_SUCCESS_RATE_KEY = "SubmitterSuccessRate";
 
-export async function updateSubmitterStatistics (allStatuses: UserDetails[], context: JobContext) {
+export async function updateSubmitterStatistics (allStatuses: StatsUserEntry[], context: JobContext) {
     const organicStatuses: Record<string, number> = {};
     const bannedStatuses: Record<string, number> = {};
 
-    for (const status of allStatuses) {
+    for (const status of allStatuses.map(entry => entry.data)) {
         if (!status.submitter || !status.reportedAt) {
             continue;
         }
@@ -37,6 +38,7 @@ export async function updateSubmitterStatistics (allStatuses: UserDetails[], con
     const distinctUsers = _.uniq([...Object.keys(organicStatuses), ...Object.keys(bannedStatuses)]);
     const submitterStatistics: SubmitterStatistic[] = [];
     const successRatesToStore: ZMember[] = [];
+    const controlSubSettings = await getControlSubSettings(context);
 
     for (const user of distinctUsers) {
         const organicCount = organicStatuses[user] ?? 0;
@@ -45,7 +47,7 @@ export async function updateSubmitterStatistics (allStatuses: UserDetails[], con
         const ratio = Math.round(100 * bannedCount / totalCount);
         submitterStatistics.push({ submitter: user, count: totalCount, ratio });
 
-        if (organicCount + bannedCount >= 5) {
+        if (organicCount + bannedCount >= (controlSubSettings.thresholdForSubmitterCalculation ?? 10)) {
             successRatesToStore.push({ member: user, score: ratio });
         }
     }
@@ -54,10 +56,8 @@ export async function updateSubmitterStatistics (allStatuses: UserDetails[], con
     wikiContent.push({ h1: "Submitter statistics" });
     wikiContent.push({ p: "This lists all users who have submitted an account for review within the last month." });
 
-    const controlSubSettings = await getControlSubSettings(context);
-
     const tableRows = submitterStatistics
-        .filter(item => item.count >= 5)
+        .filter(item => item.count >= (controlSubSettings.thresholdForSubmitterCalculation ?? 10))
         .sort((a, b) => b.count - a.count)
         .map(item => [
             item.submitter,

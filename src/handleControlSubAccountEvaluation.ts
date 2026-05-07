@@ -4,12 +4,13 @@ import { getUserStatus, UserStatus } from "./dataStore.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT, ControlSubredditJob, PostFlairTemplate } from "./constants.js";
 import { getEvaluatorVariables } from "./userEvaluation/evaluatorVariables.js";
 import { createUserSummary } from "./UserSummary/userSummary.js";
-import { addMonths, addSeconds, addWeeks, subMonths } from "date-fns";
+import { addSeconds, addWeeks, subMonths } from "date-fns";
 import { getUserExtended } from "./extendedDevvit.js";
 import _ from "lodash";
 import { getSubmitterSuccessRate } from "./statistics/submitterStatistics.js";
 import { conditionallyCompressString, conditionallyDecompressString, getPostOrCommentById } from "./utility.js";
 import { getControlSubSettings } from "./settings.js";
+import pluralize from "pluralize";
 
 export interface EvaluatorStats {
     hitCount: number;
@@ -120,6 +121,18 @@ export async function evaluateUserAccount (options: EvaluateUserAccountOptions, 
     return results;
 }
 
+function getEvaluationResultText (result: EvaluationResult): string {
+    let text = result.botName;
+    if (result.botName.includes("Bot Group") && result.hitReason) {
+        if (typeof result.hitReason === "string") {
+            text += `(${result.hitReason})`;
+        } else {
+            text += `: ${result.hitReason.reason}`;
+        }
+    }
+    return text;
+}
+
 export async function handleControlSubAccountEvaluation (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
         return;
@@ -127,6 +140,8 @@ export async function handleControlSubAccountEvaluation (event: ScheduledJobEven
 
     const username = event.data?.username as string | undefined;
     const postId = event.data?.postId as string | undefined;
+    const forceManualReview = event.data?.forceManualReview as boolean | undefined;
+    const forceManualReviewReasons = event.data?.forceManualReviewReasons as string[] | undefined;
 
     if (!username || !postId) {
         return;
@@ -152,9 +167,14 @@ export async function handleControlSubAccountEvaluation (event: ScheduledJobEven
     if (evaluationResults.length === 0) {
         reportReason = "Needs manual review.";
     } else if (evaluationResults.every(result => !result.metThreshold)) {
-        reportReason = `Possible bot via evaluation, but insufficient content: ${evaluationResults.map(result => result.botName).join(", ")}`;
+        reportReason = `Possible bot via evaluation, but insufficient content: ${evaluationResults.map(getEvaluationResultText).join(", ")}`;
     } else if (!evaluationResults.some(result => result.canAutoBan)) {
-        reportReason = `Possible bot via evaluation, tagged as no-auto-ban: ${evaluationResults.map(result => result.botName).join(", ")}`;
+        reportReason = `Possible bot via evaluation, tagged as no-auto-ban: ${evaluationResults.map(getEvaluationResultText).join(", ")}`;
+    } else if (forceManualReview && evaluationResults.length > 0) {
+        reportReason = `Likely bot via evaluation, needs manual check: ${evaluationResults.map(getEvaluationResultText).join(", ")}`;
+        if (forceManualReviewReasons && forceManualReviewReasons.length > 0) {
+            reportReason += `. Additional reasons: ${forceManualReviewReasons.join(", ")}`;
+        }
     } else if (await userHasContinuousNSFWHistory(username, context)) {
         reportReason = "Possible bot via evaluation, but continuous NSFW history detected.";
     }
@@ -229,7 +249,10 @@ export async function storeAccountInitialEvaluationResults (username: string, re
     }));
 
     const resultsKey = getEvaluationResultsKey(username);
-    await context.redis.set(resultsKey, conditionallyCompressString(JSON.stringify(resultsToStore)), { expiration: addMonths(new Date(), 12) });
+    const newData = conditionallyCompressString(JSON.stringify(resultsToStore));
+    await context.redis.set(resultsKey, newData);
+
+    return newData.length;
 }
 
 export async function getAccountInitialEvaluationResults (username: string, context: TriggerContext): Promise<EvaluationResult[]> {
@@ -244,6 +267,30 @@ export async function getAccountInitialEvaluationResults (username: string, cont
 
 export async function deleteAccountInitialEvaluationResults (username: string, context: TriggerContext) {
     await context.redis.del(getEvaluationResultsKey(username));
+}
+
+export async function recompressAccountInitialEvaluationResults (username: string, context: TriggerContext) {
+    const existingTtl = await context.redis.expireTime(getEvaluationResultsKey(username));
+    if (existingTtl < 0) {
+        // Key does not exist or has no expiration, no need to recompress.
+        return;
+    }
+
+    const currentSize = await context.redis.strLen(getEvaluationResultsKey(username));
+    const evaluationResults = await getAccountInitialEvaluationResults(username, context);
+    if (evaluationResults.length === 0) {
+        await deleteAccountInitialEvaluationResults(username, context);
+        console.log(`Data store: Deleted empty initial eval for ${username}.`);
+        return;
+    }
+
+    const newSize = await storeAccountInitialEvaluationResults(username, evaluationResults, context);
+
+    let logMessage = `Data store: Recompressed initial eval for ${username}.`;
+    if (newSize && newSize < currentSize) {
+        logMessage += ` Saved: ${currentSize - newSize} ${pluralize("byte", currentSize - newSize)}.`;
+    }
+    console.log(logMessage);
 }
 
 async function subIsNSFW (subredditName: string, context: TriggerContext): Promise<boolean> {
