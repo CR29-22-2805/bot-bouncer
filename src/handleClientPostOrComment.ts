@@ -1,27 +1,17 @@
 import { Post, Comment, TriggerContext, SettingsValues, JSONValue, UserSocialLink } from "@devvit/public-api";
 import { CommentCreate, CommentUpdate, PostCreate } from "@devvit/protos";
-import { addDays, formatDate, subMinutes } from "date-fns";
+import { addDays, addSeconds, formatDate, subMinutes } from "date-fns";
 import { getUserStatus, UserDetails, UserStatus } from "./dataStore.js";
 import { isUserWhitelisted, recordBan, recordUserContentCreation } from "./handleClientSubredditClassificationChanges.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT } from "./constants.js";
-import { getPostOrCommentById, getUserOrUndefined, isModeratorWithCache } from "./utility.js";
+import { getUserOrUndefined, isModeratorWithCache } from "./utility.js";
 import { ActionType, AppSetting, CONFIGURATION_DEFAULTS, getControlSubSettings } from "./settings.js";
 import { addExternalSubmissionFromClientSub } from "./externalSubmissions.js";
 import { isLinkId } from "@devvit/public-api/types/tid.js";
 import { getEvaluatorVariables } from "./userEvaluation/evaluatorVariables.js";
 import { recordBanForSummary } from "./modmail/actionSummary.js";
-import { getUserExtended } from "./extendedDevvit.js";
 import { expireKeyAt, isBanned, isContributor } from "devvit-helpers";
-
-async function getTrueUsername (username: string, targetId: string, context: TriggerContext): Promise<string> {
-    if (username !== "[redacted]") {
-        return username;
-    }
-
-    const target = await getPostOrCommentById(targetId, context);
-    console.log(`Bot check: Author is redacted, true username for ${targetId} is ${target.authorName}`);
-    return target.authorName;
-}
+import { filterContent, getPostOrCommentById, getTrueUsername, getUserExtended, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 export async function handleClientPostCreate (event: PostCreate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
@@ -32,7 +22,7 @@ export async function handleClientPostCreate (event: PostCreate, context: Trigge
         return;
     }
 
-    const username = await getTrueUsername(event.author.name, event.post.id, context);
+    const username = await getTrueUsername(context.reddit, event.author.name, event.post.id);
 
     await recordUserContentCreation(username, context);
 
@@ -68,35 +58,55 @@ export async function handleClientPostCreate (event: PostCreate, context: Trigge
     }
 }
 
+/**
+ * Fixes CommentCreate or CommentUpdate events where the comment body and author have been redacted due to being removed or filtered
+ * @param event A CommentCreate or CommentUpdate event
+ * @param context Reddit's TriggerContext
+ * @returns A fixed event of the same type with redacted information restored
+ */
+async function fixedCommentEvent<T extends CommentCreate | CommentUpdate> (event: T, context: TriggerContext): Promise<T> {
+    const eventToReturn: T = { ...event };
+    if (!eventToReturn.comment?.id || eventToReturn.author?.name !== "[redacted]") {
+        return event;
+    }
+
+    const comment = await context.reddit.getCommentById(eventToReturn.comment.id);
+
+    eventToReturn.author.name = comment.authorName;
+    if (comment.authorId) {
+        eventToReturn.comment.author = comment.authorId;
+    }
+    eventToReturn.comment.body = comment.body;
+
+    console.log(`Bot check: Fixed event for comment ${comment.id} by ${comment.authorName}`);
+
+    return eventToReturn;
+}
+
 export async function handleClientCommentCreate (event: CommentCreate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
         return;
     }
 
-    if (!event.comment || !event.author?.name) {
+    const fixedEvent = await fixedCommentEvent(event, context);
+
+    if (!fixedEvent.comment || !fixedEvent.author?.name) {
         return;
     }
 
-    const username = await getTrueUsername(event.author.name, event.comment.id, context);
+    await recordUserContentCreation(fixedEvent.author.name, context);
 
-    await recordUserContentCreation(username, context);
-
-    if (username === "AutoModerator" || username === `${context.subredditName}-ModTeam`) {
+    if (fixedEvent.author.name === "AutoModerator" || fixedEvent.author.name === `${context.subredditName}-ModTeam`) {
         return;
     }
 
-    const currentStatus = await getUserStatus(username, context);
+    const currentStatus = await getUserStatus(fixedEvent.author.name, context);
     if (currentStatus) {
-        await handleContentCreation(username, currentStatus, event.comment.id, context);
+        await handleContentCreation(fixedEvent.author.name, currentStatus, fixedEvent.comment.id, context);
         return;
     }
 
     const variables = await getEvaluatorVariables(context);
-
-    const eventToCheck = { ...event };
-    if (eventToCheck.author?.name === "[redacted]") {
-        eventToCheck.author.name = username;
-    }
 
     let possibleBot = false;
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
@@ -105,7 +115,7 @@ export async function handleClientCommentCreate (event: CommentCreate, context: 
             continue;
         }
 
-        if (await Promise.resolve(evaluator.preEvaluateComment(eventToCheck))) {
+        if (await Promise.resolve(evaluator.preEvaluateComment(fixedEvent))) {
             possibleBot = true;
             break;
         }
@@ -115,7 +125,7 @@ export async function handleClientCommentCreate (event: CommentCreate, context: 
         return;
     }
 
-    const redisKey = `lastBotCheckForUser:${username}`;
+    const redisKey = `lastBotCheckForUser:${fixedEvent.author.name}`;
     const recentlyChecked = await context.redis.get(redisKey);
     if (recentlyChecked) {
         // Allow some rechecks within 15 minutes, to find rapid fire bots.
@@ -126,7 +136,7 @@ export async function handleClientCommentCreate (event: CommentCreate, context: 
     }
 
     const settings = await context.settings.getAll();
-    await checkAndReportPotentialBot(username, event, settings, variables, context);
+    await checkAndReportPotentialBot(fixedEvent.author.name, fixedEvent, settings, variables, context);
 
     await context.redis.set(redisKey, new Date().getTime().toString(), { expiration: addDays(new Date(), 2) });
 }
@@ -136,27 +146,26 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
         return;
     }
 
-    if (!event.comment || !event.author?.name) {
+    const fixedEvent = await fixedCommentEvent(event, context);
+
+    if (!fixedEvent.comment || !fixedEvent.author?.name) {
         return;
     }
 
-    const username = await getTrueUsername(event.author.name, event.comment.id, context);
-
-    if (username === "AutoModerator" || username === `${context.subredditName}-ModTeam`) {
+    if (await hasTriggerBeenHandled(context.redis, `CommentUpdate:${fixedEvent.comment.id}`, { expiration: addSeconds(new Date(), 10) })) {
         return;
     }
 
-    const currentStatus = await getUserStatus(username, context);
+    if (fixedEvent.author.name === "AutoModerator" || fixedEvent.author.name === `${context.subredditName}-ModTeam`) {
+        return;
+    }
+
+    const currentStatus = await getUserStatus(fixedEvent.author.name, context);
     if (currentStatus) {
         return;
     }
 
     const variables = await getEvaluatorVariables(context);
-
-    const eventToCheck = { ...event };
-    if (eventToCheck.author?.name === "[redacted]") {
-        eventToCheck.author.name = username;
-    }
 
     let possibleBot = false;
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
@@ -165,7 +174,7 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
             continue;
         }
 
-        if (evaluator.preEvaluateCommentEdit(eventToCheck)) {
+        if (evaluator.preEvaluateCommentEdit(fixedEvent)) {
             possibleBot = true;
             break;
         }
@@ -175,7 +184,7 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
         return;
     }
 
-    const redisKey = `lastBotCheckForUser:${username}`;
+    const redisKey = `lastBotCheckForUser:${fixedEvent.author.name}`;
     const recentlyChecked = await context.redis.get(redisKey);
     if (recentlyChecked) {
         // Allow some rechecks within 15 minutes, to find rapid fire bots.
@@ -186,7 +195,7 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
     }
 
     const settings = await context.settings.getAll();
-    await checkAndReportPotentialBot(username, event, settings, variables, context);
+    await checkAndReportPotentialBot(fixedEvent.author.name, fixedEvent, settings, variables, context);
 
     await context.redis.set(redisKey, new Date().getTime().toString(), { expiration: addDays(new Date(), 2) });
 }
@@ -240,7 +249,7 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
     const [actionToTake] = settings[AppSetting.Action] as ActionType[] | undefined ?? [ActionType.Ban];
 
     const promises: Promise<unknown>[] = [];
-    const target = await getPostOrCommentById(targetId, context);
+    const target = await getPostOrCommentById(context.reddit, targetId);
 
     if (actionToTake === ActionType.Ban) {
         const isCurrentlyBanned = await isBanned(context.reddit, subredditName, user.username);
@@ -271,7 +280,7 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
         if (!removedByMod) {
             promises.push(context.reddit.remove(targetId, true));
             if (settings[AppSetting.LockContentWhenRemoving]) {
-                const target = await getPostOrCommentById(targetId, context);
+                const target = await getPostOrCommentById(context.reddit, targetId);
                 if (!target.locked) {
                     promises.push(target.lock());
                     await context.redis.hSet(`lockedItems:${username}`, { [targetId]: targetId });
@@ -280,9 +289,12 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
             }
             console.log(`Content Create: ${targetId} removed for ${user.username}`);
         }
-    } else {
-        // Report, not ban.
+    } else if (actionToTake === ActionType.Filter) {
+        promises.push(filterContent(context, { itemId: targetId, reason: "User is listed as a bot on r/BotBouncer" }));
+        console.log(`Content Create: ${targetId} filtered for ${user.username}`);
+    } else { // Report
         promises.push(context.reddit.report(target, { reason: "User is listed as a bot on /r/BotBouncer" }));
+        console.log(`Content Create: ${targetId} reported for ${user.username}`);
     }
 
     await Promise.allSettled(promises);
@@ -346,7 +358,7 @@ async function checkAndReportPotentialBot (username: string, target: Post | Comm
         }
 
         if (!userItems.some(item => item.id === targetId)) {
-            userItems.unshift(await getPostOrCommentById(targetId, context));
+            userItems.unshift(await getPostOrCommentById(context.reddit, targetId));
         }
 
         evaluator.setHistory(userItems);
@@ -387,7 +399,7 @@ async function checkAndReportPotentialBot (username: string, target: Post | Comm
 
     const currentUser = await context.reddit.getCurrentUser();
 
-    const targetItem = await getPostOrCommentById(targetId, context);
+    const targetItem = await getPostOrCommentById(context.reddit, targetId);
     const reportContext = `Automatically reported via a [${isLinkId(targetItem.id) ? "post" : "comment"}](${targetItem.permalink}) on /r/${targetItem.subredditName}`;
 
     await addExternalSubmissionFromClientSub({

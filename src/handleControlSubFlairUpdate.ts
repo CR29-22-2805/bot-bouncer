@@ -5,10 +5,11 @@ import { getUserStatus, setUserStatus, UserDetails, UserFlag, UserStatus, writeU
 import { getUsernameFromUrl } from "./utility.js";
 import { queueSendFeedback } from "./submissionFeedback.js";
 import _ from "lodash";
-import { addHours } from "date-fns";
+import { addHours, addSeconds } from "date-fns";
 import { addToReversalsQueue } from "./modmail/evaluatorReversals.js";
 import { statusToFlair } from "./postCreation.js";
 import { submitAccountForReview } from "./modmail/accountReview.js";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 interface FlairMapping {
     postFlair: string;
@@ -49,14 +50,18 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
         return;
     }
 
-    const appUser = await context.reddit.getAppUser();
-
-    if (event.post.authorId !== appUser.id) {
+    const postFlair = event.post.linkFlair?.text as UserStatus | undefined;
+    if (!postFlair) {
         return;
     }
 
-    const postFlair = event.post.linkFlair?.text as UserStatus | undefined;
-    if (!postFlair) {
+    if (await hasTriggerBeenHandled(context.redis, `PostFlairUpdate:${event.post.id}:${postFlair}`, { expiration: addSeconds(new Date(), 10) })) {
+        return;
+    }
+
+    const appUser = await context.reddit.getAppUser();
+
+    if (event.post.authorId !== appUser.id) {
         return;
     }
 

@@ -1,8 +1,8 @@
 import { Comment, JobContext, JSONObject, Post, RedisClient, ScheduledJobEvent, TriggerContext, TxClientLike } from "@devvit/public-api";
-import { addDays, addHours, addSeconds, addWeeks, subDays, subMinutes, subSeconds } from "date-fns";
+import { addDays, addHours, addMinutes, addSeconds, addWeeks, subDays, subMinutes, subSeconds } from "date-fns";
 import { CONTROL_SUBREDDIT, PostFlairTemplate, UniversalJob } from "./constants.js";
 import { deleteUserStatus, getUserStatus, removeRecordOfSubmitterOrMod, updateAggregate, UserFlag, UserStatus, writeUserStatus } from "./dataStore.js";
-import { getUserExtended } from "./extendedDevvit.js";
+import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { removeRecordOfBan, removeWhitelistUnban } from "./handleClientSubredditClassificationChanges.js";
 import _ from "lodash";
 import { getControlSubSettings } from "./settings.js";
@@ -166,8 +166,8 @@ export async function cleanupDeletedAccounts (event: ScheduledJobEvent<JSONObjec
         if (currentUserStatus === UserActiveStatus.Active) {
             activeCount++;
             if (currentStatus.userStatus === UserStatus.Pending) {
-                // User is still pending, so set the next check date to be 1 hour from now.
-                overrideCleanupDate = addHours(new Date(), 1);
+                // User is still pending, so set the next check date to be very soon to allow for pending->retired transitions.
+                overrideCleanupDate = addMinutes(new Date(), 15);
             } else if (currentStatus.userStatus === UserStatus.Banned && new Date(currentStatus.lastUpdate) > subDays(new Date(), 8)) {
                 // Recheck banned but active users every day for the first week, then normal cadence after.
                 overrideCleanupDate = addDays(new Date(), 1);
@@ -192,7 +192,7 @@ export async function cleanupDeletedAccounts (event: ScheduledJobEvent<JSONObjec
             if (currentStatus.userStatus === UserStatus.Inactive) {
                 // Check for recent activity to potentially change status from Inactive to Pending.
                 const latestContent = await getLatestContentDate(username, context);
-                if (latestContent && new Date(latestContent) > subDays(new Date(), 14)) {
+                if (latestContent && new Date(latestContent) > subDays(new Date(), 14) && new Date(latestContent) > new Date(currentStatus.lastUpdate)) {
                     newFlair = PostFlairTemplate.Pending;
                 }
                 overrideCleanupDate = addWeeks(new Date(), 1);

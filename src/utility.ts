@@ -1,5 +1,4 @@
-import { Comment, Post, TriggerContext, User } from "@devvit/public-api";
-import { isCommentId, isLinkId } from "@devvit/public-api/types/tid.js";
+import { TriggerContext, User } from "@devvit/public-api";
 import { addDays, addHours, formatDuration, intervalToDuration } from "date-fns";
 import { isBanned, isModerator } from "devvit-helpers";
 import Pako from "pako";
@@ -56,16 +55,6 @@ export async function isBannedWithCache (username: string, context: TriggerConte
     const isUserBanned = await isBanned(context.reddit, subName, username);
     await context.redis.set(cacheKey, JSON.stringify(isUserBanned), { expiration: cacheUntil ?? addDays(new Date(), 1) });
     return isUserBanned;
-}
-
-export function getPostOrCommentById (thingId: string, context: TriggerContext): Promise<Post | Comment> {
-    if (isCommentId(thingId)) {
-        return context.reddit.getCommentById(thingId);
-    } else if (isLinkId(thingId)) {
-        return context.reddit.getPostById(thingId);
-    } else {
-        throw new Error(`Invalid thingId ${thingId}`);
-    }
 }
 
 export async function getUserOrUndefined (username: string, context: TriggerContext, logError = false): Promise<User | undefined> {
