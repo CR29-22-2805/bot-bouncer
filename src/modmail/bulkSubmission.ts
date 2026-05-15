@@ -1,14 +1,11 @@
-import { Comment, Post, TriggerContext } from "@devvit/public-api";
+import { TriggerContext } from "@devvit/public-api";
 import Ajv, { JSONSchemaType } from "ajv";
 import { getUserStatus, UserStatus } from "../dataStore.js";
-import _ from "lodash";
-import { subMonths } from "date-fns";
 import json2md from "json2md";
-import { AsyncSubmission, queuePostCreation } from "../postCreation.js";
-import { getUserExtended, UserExtended } from "../extendedDevvit.js";
+import { AsyncSubmission, PostCreationQueueResult, queuePostCreation } from "../postCreation.js";
+import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { CONTROL_SUBREDDIT } from "../constants.js";
 import pluralize from "pluralize";
-import { EvaluationResult, storeAccountInitialEvaluationResults } from "../handleControlSubAccountEvaluation.js";
 import { ModmailMessage } from "./modmail.js";
 import { getControlSubSettings } from "../settings.js";
 import markdownEscape from "markdown-escape";
@@ -57,64 +54,60 @@ const schema: JSONSchemaType<BulkSubmission> = {
     additionalProperties: false,
 };
 
-async function handleBulkItem (username: string, initialStatus: UserStatus, submitter: string, externalSubmitter: string | undefined, reason: string | undefined, context: TriggerContext): Promise<boolean> {
-    const user = await getUserExtended(username, context);
-    if (!user) {
-        console.log(`Bulk submission: User ${username} is deleted or shadowbanned, skipping.`);
-        return false;
-    }
+interface BulkItem {
+    username: string;
+    initialStatus: UserStatus;
+    submitter: string;
+    reason?: string;
+}
 
-    const currentStatus = await getUserStatus(username, context);
-    if (currentStatus) {
-        console.log(`Bulk submission: User ${username} already has a status of ${currentStatus.userStatus}.`);
-        return false;
-    }
+async function handleBulkItems (items: BulkItem[], context: TriggerContext): Promise<number> {
+    const submissions: AsyncSubmission[] = [];
 
-    if (initialStatus === UserStatus.Banned) {
-        const overrideStatus = await trustedSubmitterInitialStatus(submitter, user, context);
-        if (overrideStatus === UserStatus.Pending) {
-            console.log(`Bulk submission: Initial status for ${username} is Pending, skipping submission.`);
-            return false;
+    await Promise.all(items.map(async (item) => {
+        const { username, initialStatus, submitter, reason } = item;
+
+        const user = await getUserExtended(username, context);
+        if (!user) {
+            console.log(`Bulk submission: User ${username} is deleted or shadowbanned, skipping.`);
+            return;
         }
-    }
 
-    let commentToAdd: string | undefined;
-    if (reason) {
-        commentToAdd = json2md([
-            { p: "The submitter added the following context for this submission:" },
-            { blockquote: reason },
-            { p: `*I am a bot, and this action was performed automatically. Please [contact the moderators of this subreddit](/message/compose/?to=/r/${CONTROL_SUBREDDIT}) if you have any questions or concerns.*` },
-        ]);
-    }
+        const currentStatus = await getUserStatus(username, context);
+        if (currentStatus) {
+            console.log(`Bulk submission: User ${username} already has a status of ${currentStatus.userStatus}.`);
+            return;
+        }
 
-    const submission: AsyncSubmission = {
-        user,
-        submitter,
-        reportContext: reason,
-        details: {
-            userStatus: initialStatus,
-            lastUpdate: new Date().getTime(),
+        let commentToAdd: string | undefined;
+        if (reason) {
+            commentToAdd = json2md([
+                { p: "The submitter added the following context for this submission:" },
+                { blockquote: reason },
+                { p: `*I am a bot, and this action was performed automatically. Please [contact the moderators of this subreddit](/message/compose/?to=/r/${CONTROL_SUBREDDIT}) if you have any questions or concerns.*` },
+            ]);
+        }
+
+        submissions.push({
+            user,
             submitter,
-            operator: context.appSlug,
-            trackingPostId: "",
-        },
-        commentToAdd,
-        immediate: false,
-        evaluatorsChecked: false,
-    };
+            reportContext: reason,
+            details: {
+                userStatus: initialStatus,
+                lastUpdate: new Date().getTime(),
+                submitter,
+                operator: context.appSlug,
+                trackingPostId: "",
+            },
+            commentToAdd,
+            immediate: false,
+            evaluatorsChecked: false,
+        });
+    }));
 
-    await queuePostCreation(submission, context);
+    const results = await queuePostCreation(submissions, context);
 
-    if (externalSubmitter) {
-        const evaluationResult: EvaluationResult = {
-            botName: "Modmail Bulk Submission",
-            hitReason: `Submitted via ${submitter} due to report by ${externalSubmitter}`,
-            canAutoBan: initialStatus === UserStatus.Banned,
-            metThreshold: true,
-        };
-        await storeAccountInitialEvaluationResults(username, [evaluationResult], context);
-    }
-    return true;
+    return results.filter(result => result === PostCreationQueueResult.Queued).length;
 }
 
 export async function handleBulkSubmission (submitter: string, trusted: boolean, conversationId: string, message: string, context: TriggerContext): Promise<boolean> {
@@ -171,14 +164,22 @@ export async function handleBulkSubmission (submitter: string, trusted: boolean,
 
     if (data.usernames) {
         const initialStatus = trusted ? UserStatus.Banned : UserStatus.Pending;
-        const results = await Promise.all(_.uniq(data.usernames).map(username => handleBulkItem(username, initialStatus, submitter, undefined, data.reason, context)));
-        queued += _.compact(results).length;
+        queued = await handleBulkItems(data.usernames.map(username => ({
+            username,
+            initialStatus,
+            submitter,
+            reason: data.reason,
+        })), context);
     }
 
     if (data.userDetails) {
         const initialStatus = trusted ? UserStatus.Banned : UserStatus.Pending;
-        const results = await Promise.all(data.userDetails.map(entry => handleBulkItem(entry.username, initialStatus, submitter, entry.submitter, entry.reason ?? data.reason, context)));
-        queued += _.compact(results).length;
+        queued = await handleBulkItems(data.userDetails.map(entry => ({
+            username: entry.username,
+            initialStatus,
+            submitter: entry.submitter,
+            reason: entry.reason,
+        })), context);
     }
 
     await context.reddit.modMail.archiveConversation(conversationId);
@@ -188,45 +189,6 @@ export async function handleBulkSubmission (submitter: string, trusted: boolean,
     }
 
     return true;
-}
-
-async function trustedSubmitterInitialStatus (submitter: string, submittedAccount: UserExtended, context: TriggerContext): Promise<UserStatus | undefined> {
-    if (submitter !== "HelpfulJanitor") {
-        return UserStatus.Banned;
-    }
-
-    console.log(`Checking trusted submitter status for ${submittedAccount.username}`);
-
-    if (submittedAccount.commentKarma > 10000 || submittedAccount.linkKarma > 10000 || submittedAccount.createdAt < subMonths(new Date(), 6)) {
-        console.log(`Trusted submitter override: ${submittedAccount.username} has high karma or is older than 6 months`);
-        return UserStatus.Pending;
-    }
-
-    let history: (Post | Comment)[];
-    try {
-        history = await context.reddit.getCommentsAndPostsByUser({
-            username: submittedAccount.username,
-            limit: 100,
-        }).all();
-    } catch {
-        return;
-    }
-
-    const recentHistory = history.filter(item => item.createdAt > subMonths(new Date(), 3));
-
-    if (recentHistory.some(item => item.edited)) {
-        console.log(`Trusted submitter override: ${submittedAccount.username} has edited comments or posts`);
-        return UserStatus.Pending;
-    }
-
-    const recentComments = recentHistory.filter(item => item instanceof Comment);
-    const commentPosts = _.countBy(recentComments.map(comment => comment.postId));
-    if (Object.values(commentPosts).some(count => count > 1)) {
-        console.log(`Trusted submitter override: ${submittedAccount.username} has commented multiple times in the same post`);
-        return UserStatus.Pending;
-    }
-
-    return UserStatus.Banned;
 }
 
 export async function retryBulkSubmission (modmail: ModmailMessage, context: TriggerContext) {

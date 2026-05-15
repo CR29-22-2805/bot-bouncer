@@ -3,11 +3,11 @@ import { CONTROL_SUBREDDIT, INTERNAL_BOT } from "./constants.js";
 import { addUserToTempDeclineStore, getUserStatus, UserStatus } from "./dataStore.js";
 import { getControlSubSettings } from "./settings.js";
 import { addDays, addMinutes, addSeconds, addWeeks } from "date-fns";
-import { getPostOrCommentById, getUserOrUndefined } from "./utility.js";
+import { getUserOrUndefined } from "./utility.js";
 import { isLinkId } from "@devvit/public-api/types/tid.js";
 import { AsyncSubmission, isUserAlreadyQueued, PostCreationQueueResult, promotePositionInQueue, queuePostCreation } from "./postCreation.js";
 import pluralize from "pluralize";
-import { getUserExtendedFromUser } from "./extendedDevvit.js";
+import { getPostOrCommentById, getUserExtendedFromUser } from "@fsvreddit/fsv-devvit-helpers";
 import { evaluateUserAccount, EvaluationResult, storeAccountInitialEvaluationResults } from "./handleControlSubAccountEvaluation.js";
 import json2md from "json2md";
 import { getEvaluatorVariables } from "./userEvaluation/evaluatorVariables.js";
@@ -144,7 +144,7 @@ export async function addExternalSubmissionToPostCreationQueue (item: ExternalSu
         ];
 
         if (item.targetId) {
-            const target = await getPostOrCommentById(item.targetId, context);
+            const target = await getPostOrCommentById(context.reddit, item.targetId);
             body.push({ p: `User was reported via [this ${isLinkId(target.id) ? "post" : "comment"}](${target.permalink})` });
         }
 
@@ -170,7 +170,7 @@ export async function addExternalSubmissionToPostCreationQueue (item: ExternalSu
         evaluatorsChecked: item.evaluationResults !== undefined && item.evaluationResults.length > 0,
     };
 
-    const result = await queuePostCreation(submission, context);
+    const [result] = await queuePostCreation([submission], context);
     if (result === PostCreationQueueResult.Queued) {
         let message = `External Submissions: Queued post creation for ${item.username}`;
         if (item.submitter) {
@@ -284,11 +284,21 @@ export async function processExternalSubmissionsQueue (context: JobContext): Pro
             break;
         }
 
-        await context.redis.global.zRem(EXTERNAL_SUBMISSION_QUEUE_KEY, [username]);
+        const keyForUser = `externalSubmissionAttempt:${username}`;
+        const attemptCount = await context.redis.incrBy(keyForUser, 1);
+        if (attemptCount === 1) {
+            await context.redis.expire(keyForUser, 60 * 60); // Expire after 1 hour
+        } else if (attemptCount > 3) {
+            console.log(`External Submissions: User ${username} has failed processing too many times, skipping and removing from queue.`);
+            await context.redis.global.zRem(EXTERNAL_SUBMISSION_QUEUE_KEY, [username]);
+            await context.redis.del(keyForUser);
+            continue;
+        }
 
         const submissionDataRaw = await context.redis.global.get(getExternalSubmissionDataKey(username));
         if (!submissionDataRaw) {
             console.error(`External Submissions: No data found for ${username}, skipping.`);
+            await context.redis.global.zRem(EXTERNAL_SUBMISSION_QUEUE_KEY, [username]);
             continue;
         }
 
@@ -298,6 +308,8 @@ export async function processExternalSubmissionsQueue (context: JobContext): Pro
         if (postSubmitted) {
             processed++;
         }
+
+        await context.redis.global.zRem(EXTERNAL_SUBMISSION_QUEUE_KEY, [username]);
     }
 
     console.log(`External Submissions: Processed ${processed} external ${pluralize("submission", processed)} from the queue.`);
@@ -355,7 +367,7 @@ export async function getSubredditsFromExternalSubmissions (externalSubmissions:
         }
 
         if (!itemAdded && submission.targetId) {
-            const target = await getPostOrCommentById(submission.targetId, context);
+            const target = await getPostOrCommentById(context.reddit, submission.targetId);
             subreddits.add(target.subredditName);
         }
     }

@@ -11,8 +11,13 @@ import { handleObserverSubsWikiPageCopy } from "./statistics/observerSubWikiPage
 import { isModeratorWithCache, removeCachedBanStatus, sendMessageToWebhook } from "./utility.js";
 import { getExtendedDevvit } from "devvit-helpers";
 import { getInstallDate } from "./installActions.js";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 export async function handleModAction (event: ModAction, context: TriggerContext) {
+    if (await hasTriggerBeenHandled(context.redis, `ModAction:${event.action}:${event.moderator?.name}:${event.actionedAt?.getTime()}`, { expiration: addMinutes(new Date(), 10) })) {
+        return;
+    }
+
     if (context.subredditName === CONTROL_SUBREDDIT) {
         await handleModActionControlSub(event, context);
     } else {

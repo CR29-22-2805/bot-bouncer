@@ -3,6 +3,7 @@ import { CommentCreate } from "@devvit/protos";
 import { CONTROL_SUBREDDIT } from "./constants.js";
 import { getUserStatus, UserStatus } from "./dataStore.js";
 import json2md from "json2md";
+import { getTrueUsername } from "@fsvreddit/fsv-devvit-helpers";
 
 export async function handleControlSubCommentCreate (event: CommentCreate, context: TriggerContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
@@ -13,7 +14,13 @@ export async function handleControlSubCommentCreate (event: CommentCreate, conte
         return;
     }
 
-    const userStatus = await getUserStatus(event.author.name, context);
+    const username = await getTrueUsername(context.reddit, event.author.name, event.comment.id);
+
+    if (username === context.appSlug) {
+        return;
+    }
+
+    const userStatus = await getUserStatus(username, context);
 
     if (userStatus?.userStatus !== UserStatus.Banned) {
         return;
@@ -35,5 +42,5 @@ export async function handleControlSubCommentCreate (event: CommentCreate, conte
     await newComment.distinguish();
     await newComment.lock();
 
-    console.log(`CommentCreate: Removed comment by banned user ${event.author.name} in ${CONTROL_SUBREDDIT}`);
+    console.log(`CommentCreate: Removed comment by banned user ${username} in ${CONTROL_SUBREDDIT}`);
 }

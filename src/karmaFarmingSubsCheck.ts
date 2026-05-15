@@ -6,7 +6,7 @@ import { getAllKnownUsers, getUserStatus, UserDetails, UserStatus } from "./data
 import { evaluateUserAccount, storeAccountInitialEvaluationResults, userHasContinuousNSFWHistory } from "./handleControlSubAccountEvaluation.js";
 import { getControlSubSettings } from "./settings.js";
 import { addMinutes, addSeconds, differenceInMinutes, subMinutes, subWeeks } from "date-fns";
-import { getUserExtended } from "./extendedDevvit.js";
+import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { AsyncSubmission, PostCreationQueueResult, queuePostCreation } from "./postCreation.js";
 import pluralize from "pluralize";
 import json2md from "json2md";
@@ -142,7 +142,7 @@ async function evaluateAndHandleUser (username: string, variables: Record<string
         evaluatorsChecked: evaluationResults.length > 0,
     };
 
-    const result = await queuePostCreation(submission, context);
+    const [result] = await queuePostCreation([submission], context);
     if (result === PostCreationQueueResult.Queued) {
         console.log(`Karma Farming Subs: Queued post creation for ${username}`);
     } else {
