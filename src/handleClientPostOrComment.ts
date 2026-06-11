@@ -2,7 +2,7 @@ import { Post, Comment, TriggerContext, SettingsValues, JSONValue, UserSocialLin
 import { CommentCreate, CommentUpdate, PostCreate } from "@devvit/protos";
 import { addDays, addSeconds, formatDate, subMinutes } from "date-fns";
 import { getUserStatus, UserDetails, UserStatus } from "./dataStore.js";
-import { isUserWhitelisted, recordBan, recordUserContentCreation } from "./handleClientSubredditClassificationChanges.js";
+import { addUserToModqueueRemovalStore, isUserWhitelisted, recordBan, recordUserContentCreation } from "./handleClientSubredditClassificationChanges.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT } from "./constants.js";
 import { getUserOrUndefined, isModeratorWithCache } from "./utility.js";
 import { ActionType, AppSetting, CONFIGURATION_DEFAULTS, getControlSubSettings } from "./settings.js";
@@ -15,14 +15,17 @@ import { filterContent, getPostOrCommentById, getTrueUsername, getUserExtended, 
 
 export async function handleClientPostCreate (event: PostCreate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
-        return;
+        throw new Error("Content Create: handleClientPostCreate should not be called for the control subreddit, check the subreddit name handling logic");
     }
 
     if (!event.post || !event.author?.name) {
+        console.error("Content Create: PostCreate event missing post or author information", JSON.stringify(event));
         return;
     }
 
     const username = await getTrueUsername(context.reddit, event.author.name, event.post.id);
+
+    console.log(`Content Create: PostCreate ${event.post.id} by ${username}`);
 
     await recordUserContentCreation(username, context);
 
@@ -85,7 +88,7 @@ async function fixedCommentEvent<T extends CommentCreate | CommentUpdate> (event
 
 export async function handleClientCommentCreate (event: CommentCreate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
-        return;
+        throw new Error("Content Create: handleClientCommentCreate should not be called for the control subreddit, check the subreddit name handling logic");
     }
 
     const fixedEvent = await fixedCommentEvent(event, context);
@@ -201,22 +204,24 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
 }
 
 async function handleContentCreation (username: string, currentStatus: UserDetails, targetId: string, context: TriggerContext) {
+    console.log(`Content Create: ℹ️ User ${username} has status ${currentStatus.userStatus}.`);
     if (currentStatus.userStatus !== UserStatus.Banned) {
         return;
     }
 
     const controlSubSettings = await getControlSubSettings(context);
     if (!controlSubSettings.allowBans) {
+        console.log(`Content Create: ${username} is banned but allowBans is false, so will not be actioned.`);
         return;
     }
 
     const userWhitelisted = await isUserWhitelisted(username, context);
     if (userWhitelisted) {
-        console.log(`${username} is allowlisted after a previous unban, so will not be actioned.`);
+        console.log(`Content Create: ${username} is allowlisted after a previous unban, so will not be actioned.`);
         return;
     }
 
-    console.log(`Content Create: Status for ${username} is banned`);
+    console.log(`Content Create: Status for ${username} is marked as banned`);
 
     const subredditName = context.subredditName ?? await context.reddit.getCurrentSubredditName();
 
@@ -273,7 +278,7 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
 
             promises.push(recordBan(username, context.redis));
             promises.push(recordBanForSummary(username, context.redis));
-            console.log(`Content Create: ${user.username} banned from ${subredditName}`);
+            console.log(`Content Create: 💥 ${user.username} banned from ${subredditName}`);
         }
 
         const removedByMod = await context.redis.exists(`removedbymod:${targetId}`);
@@ -288,6 +293,10 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
                 }
             }
             console.log(`Content Create: ${targetId} removed for ${user.username}`);
+        }
+
+        if (settings[AppSetting.RemoveFromModqueueWhenBanning]) {
+            await addUserToModqueueRemovalStore(username, context);
         }
     } else if (actionToTake === ActionType.Filter) {
         promises.push(filterContent(context, { itemId: targetId, reason: "User is listed as a bot on r/BotBouncer" }));

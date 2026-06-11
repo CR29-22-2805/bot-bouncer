@@ -58,6 +58,10 @@ export async function createResponse (opts: { conversationId?: string; postId?: 
     }
 }
 
+function getCacheKeyForUserSummary (username: string) {
+    return `aiSummary:${username}`;
+}
+
 export async function generateOpenAISummary (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
         console.error(`generateOpenAISummary should only run on subreddit ${CONTROL_SUBREDDIT}, but is running on ${context.subredditName}`);
@@ -73,7 +77,7 @@ export async function generateOpenAISummary (event: ScheduledJobEvent<JSONObject
         return;
     }
 
-    const cacheKey = `aiSummary:${username}`;
+    const cacheKey = getCacheKeyForUserSummary(username);
     const cachedSummary = await context.redis.get(cacheKey);
     if (cachedSummary) {
         console.log(`AI Summary: Using cached summary for user ${username}`);
@@ -246,7 +250,7 @@ export async function openAISummaryLookupAndRespond (event: ScheduledJobEvent<JS
     const prompt = event.data?.prompt as string | undefined;
 
     if (!username || !prompt || (!conversationId && !postId)) {
-        console.error("Missing username, promp or conversationId/postId in job event data");
+        console.error("Missing username, prompt or conversationId/postId in job event data");
         return;
     }
 
@@ -256,7 +260,7 @@ export async function openAISummaryLookupAndRespond (event: ScheduledJobEvent<JS
         prompt,
     }, context);
 
-    const cacheKey = `cachedAISummary:${username}`;
+    const cacheKey = getCacheKeyForUserSummary(username);
     await context.redis.set(cacheKey, result, { expiration: addDays(new Date(), 1) });
 
     await createResponse({
