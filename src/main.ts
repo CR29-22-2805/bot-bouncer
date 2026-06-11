@@ -22,7 +22,7 @@ import { handleRapidJob } from "./scheduler/handleRapidJob.js";
 import { buildEvaluatorAccuracyStatistics } from "./statistics/evaluatorAccuracyStatistics.js";
 import { gatherDefinedHandlesStats, storeDefinedHandlesDataJob } from "./statistics/definedHandlesStatistics.js";
 import { deleteRecordsForRemovedUsers, classificationReversalsJob, reversePostCreationQueue } from "./modmail/evaluatorReversals.js";
-import { handleCommentCreate, handlePostCreate } from "./handleContentCreation.js";
+import { handleCommentCreate, handlePostCreate, handlePostSubmit } from "./handleContentCreation.js";
 import { conditionalStatsUpdate } from "./statistics/conditionalStatsUpdate.js";
 import { asyncWikiUpdate } from "./statistics/asyncWikiUpdate.js";
 import { generateBioStatisticsReport, updateBioStatisticsJob } from "./statistics/userBioStatistics.js";
@@ -38,6 +38,7 @@ import { generateOpenAISummary, openAISummaryLookupAndRespond } from "./aiAnalys
 import { updateTokenStatsMessage } from "./aiAnalysis/statistics.js";
 import { updateMainStatisticsPage } from "./statistics/mainStatistics.js";
 import { checkUserFlaggedRechecksQueue } from "./userEvaluation/flaggedUsersRechecks.js";
+import { processDelayedMessages } from "./modmail/delayedSend.js";
 
 Devvit.addSettings(appSettings);
 
@@ -49,6 +50,11 @@ Devvit.addTrigger({
 Devvit.addTrigger({
     event: "PostCreate",
     onEvent: handlePostCreate,
+});
+
+Devvit.addTrigger({
+    event: "PostSubmit",
+    onEvent: handlePostSubmit,
 });
 
 Devvit.addTrigger({
@@ -276,6 +282,11 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ControlSubredditJob.FlaggedUsersRechecks,
     onRun: checkUserFlaggedRechecksQueue,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.ProcessDelayedMessages,
+    onRun: processDelayedMessages,
 });
 
 /**
