@@ -225,7 +225,9 @@ export async function setUserStatus (username: string, details: UserDetails, con
         await storeClassificationEvent(details.operator, context);
     }
 
-    await context.redis.global.zAdd(RECENT_CHANGES_STORE, { member: username, score: new Date().getTime() });
+    if (details.userStatus !== UserStatus.Pending && details.userStatus !== UserStatus.Purged && details.userStatus !== UserStatus.Retired) {
+        await context.redis.global.zAdd(RECENT_CHANGES_STORE, { member: username, score: new Date().getTime() });
+    }
 
     if (details.userStatus === UserStatus.Banned) {
         await removeUserFromReversalsQueue(username, context);
