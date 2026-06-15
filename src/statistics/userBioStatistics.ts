@@ -1,4 +1,4 @@
-import { JobContext, JSONObject, ScheduledJobEvent, UpdateWikiPageOptions } from "@devvit/public-api";
+import { JobContext, ScheduledJobEvent, UpdateWikiPageOptions } from "@devvit/public-api";
 import { addHours, addSeconds, format, subWeeks } from "date-fns";
 import json2md from "json2md";
 import { BIO_TEXT_STORE } from "../dataStore.js";
@@ -85,30 +85,36 @@ function sha1hash (input: string): string {
     return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+type BioStatsJobData = {
+    statsId: string;
+    batch?: number;
+};
+
+export async function updateBioStatisticsJob (event: ScheduledJobEvent<BioStatsJobData>, context: JobContext) {
     await context.redis.set(BIO_STATS_UPDATE_IN_PROGRESS, "true", { expiration: addSeconds(new Date(), 30) });
 
     const batchSize = 2000;
 
-    const statsId = event.data?.statsId as string | undefined;
-    if (!statsId) {
-        console.error("Bio Stats: No statsId provided in job data, cannot process bio statistics update");
-        return;
-    }
+    const statsId = event.data.statsId;
 
     const queueItems = await context.redis.zRange(getBioQueueKey(statsId), 0, batchSize - 1);
     if (Object.keys(queueItems).length === 0) {
         console.log("Bio Stats: No users in queue, generating report");
 
+        const jobData: BioStatsJobData = {
+            statsId,
+        };
+
         await context.scheduler.runJob({
             name: ControlSubredditJob.BioStatsGenerateReport,
             runAt: addSeconds(new Date(), 2),
-            data: { statsId },
+            data: jobData,
         });
         return;
     }
 
-    const batch = event.data?.batch as number | undefined ?? 1;
+    const batch = event.data.batch ?? 1;
     console.log(`Bio Stats: Running bio statistics gather job (batch ${batch})`);
 
     const runLimit = addSeconds(new Date(), 10);
@@ -190,20 +196,22 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
 
     console.log(`Bio Stats: Processed ${processed.length} users, stored bios for ${biosStored} users, batch ${batch} complete.`);
 
+    const jobData: BioStatsJobData = {
+        statsId,
+        batch: batch + 1,
+    };
+
     await context.scheduler.runJob({
         name: ControlSubredditJob.BioStatsUpdate,
         runAt: addSeconds(new Date(), 1),
-        data: {
-            batch: batch + 1,
-            statsId,
-        },
+        data: jobData,
     });
 }
 
-export async function generateBioStatisticsReport (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+export async function generateBioStatisticsReport (event: ScheduledJobEvent<BioStatsJobData>, context: JobContext) {
     console.log("Bio Stats: Generating bio statistics report");
 
-    const statsId = event.data?.statsId as string | undefined;
+    const statsId = event.data.statsId;
     if (!statsId) {
         console.error("Bio Stats: No statsId provided in job data, cannot generate report");
         return;
