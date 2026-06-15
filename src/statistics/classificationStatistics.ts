@@ -44,7 +44,7 @@ export async function updateClassificationStatistics (context: JobContext) {
 
     const wikiContent: json2md.DataObject[] = [
         { h1: "Classification statistics" },
-        { p: "This lists all users who have classified accounts from Pending within the last week." },
+        { p: "This lists all users who have classified accounts submitted by other users from Pending within the last week." },
     ];
 
     const headers = ["Username", "Classifications"];
