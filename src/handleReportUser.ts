@@ -19,6 +19,26 @@ enum ReportFormField {
     SendFeedback = "sendFeedback",
 }
 
+const REPORT_FEEDBACK_PREFERENCE_KEY = "reportFeedbackPreference";
+
+function getReportFeedbackPreferenceField (username: string): string {
+    return username.toLowerCase();
+}
+
+async function getReportFeedbackPreference (username: string, context: TriggerContext): Promise<boolean> {
+    const storedValue = await context.redis.global.hGet(
+        REPORT_FEEDBACK_PREFERENCE_KEY,
+        getReportFeedbackPreferenceField(username),
+    );
+    return storedValue === "true";
+}
+
+async function setReportFeedbackPreference (username: string, sendFeedback: boolean, context: TriggerContext): Promise<void> {
+    await context.redis.global.hSet(REPORT_FEEDBACK_PREFERENCE_KEY, {
+        [getReportFeedbackPreferenceField(username)]: sendFeedback ? "true" : "false",
+    });
+}
+
 export const reportFormDefinition: FormFunction = data => ({
     title: `Report u/${data.username} to Bot Bouncer`,
     description: "Thank you for reporting this user. Our team will review the account manually and take appropriate action.",
@@ -42,7 +62,7 @@ export const reportFormDefinition: FormFunction = data => ({
             label: "Receive a notification when this account is classified",
             helpText: data.feedbackHelpText as string,
             disabled: data.feedbackDisabled as boolean,
-            defaultValue: false,
+            defaultValue: (data.sendFeedbackDefaultValue as boolean | undefined) ?? false,
             name: ReportFormField.SendFeedback,
         },
     ],
@@ -140,10 +160,14 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
     }
 
     const canReceiveFeedback = await canUserReceiveFeedback(currentUser.username, context);
+    const sendFeedbackDefaultValue = canReceiveFeedback
+        ? await getReportFeedbackPreference(currentUser.username, context)
+        : false;
     const data = {
         username: target.authorName,
         feedbackHelpText: canReceiveFeedback ? "You must be able to receive chat messages from /u/bot-bouncer to receive this notification" : "We've tried to send feedback for you several times but this hasn't worked. Check to make sure you can receive chats from /u/bot-bouncer. This option will return within 24h.",
         feedbackDisabled: !canReceiveFeedback,
+        sendFeedbackDefaultValue,
     };
 
     context.ui.showForm(reportForm, data);
@@ -185,8 +209,10 @@ export async function reportFormHandler (event: FormOnSubmitEvent<JSONObject>, c
 
     const currentUser = await context.reddit.getCurrentUser();
     const reportContext = event.values[ReportFormField.ReportContext] as string | undefined;
+    const sendFeedback = (event.values[ReportFormField.SendFeedback] as boolean | undefined) ?? false;
 
     await Promise.all([
+        ...(currentUser ? [setReportFeedbackPreference(currentUser.username, sendFeedback, context)] : []),
         addExternalSubmissionFromClientSub({
             username: target.authorName,
             subreddit: context.subredditName,
@@ -194,7 +220,7 @@ export async function reportFormHandler (event: FormOnSubmitEvent<JSONObject>, c
             reportContext,
             publicContext,
             targetId: target.id,
-            sendFeedback: event.values[ReportFormField.SendFeedback] as boolean | undefined,
+            sendFeedback,
             immediate: true,
         }, context),
         recordReportForSummary(target.authorName, context.redis),
