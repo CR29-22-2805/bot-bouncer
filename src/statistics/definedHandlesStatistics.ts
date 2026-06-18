@@ -10,6 +10,7 @@ import { userIsBanned } from "./statsHelpers.js";
 import { parse } from "regjsparser";
 import { expireKeyAt } from "devvit-helpers";
 import pluralize from "pluralize";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 const DEFINED_HANDLES_QUEUE = "definedHandlesQueue";
 const DEFINED_HANDLES_DATA = "definedHandlesData";
@@ -35,11 +36,12 @@ const DEFINED_HANDLES_LOOKBACK_MONTHS = 6;
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type DefinedHandlesStatsInitializerJobData = {
+    firstRun: boolean;
     prefixes: string[];
 };
 
 export async function definedHandlesStatsInitializer (event: ScheduledJobEvent<DefinedHandlesStatsInitializerJobData>, context: JobContext) {
-    if (await context.redis.exists(definedHandlesRecentlyRunKey)) {
+    if (event.data.firstRun && await context.redis.exists(definedHandlesRecentlyRunKey)) {
         console.log("Defined handles statistics job ran recently; skipping this run.");
         return;
     }
@@ -76,7 +78,10 @@ export async function definedHandlesStatsInitializer (event: ScheduledJobEvent<D
         await context.scheduler.runJob({
             name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
             runAt: addSeconds(new Date(), 5),
-            data: { prefixes } satisfies DefinedHandlesStatsInitializerJobData,
+            data: {
+                firstRun: false,
+                prefixes,
+            } satisfies DefinedHandlesStatsInitializerJobData,
         });
     } else {
         await context.scheduler.runJob({
@@ -88,6 +93,12 @@ export async function definedHandlesStatsInitializer (event: ScheduledJobEvent<D
 }
 
 export async function gatherDefinedHandlesStats (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+    const entriesInQueue = await context.redis.zCard(DEFINED_HANDLES_QUEUE);
+    if (await hasTriggerBeenHandled(context.redis, `definedHandlesLockAt:${entriesInQueue}`, { expiration: addMinutes(new Date(), 1) })) {
+        console.error(`Defined Handles: Duplicate job at ${entriesInQueue} remaining!`);
+        return;
+    }
+
     const queuedHandles = await context.redis.zRange(DEFINED_HANDLES_QUEUE, 0, 4999);
 
     if (queuedHandles.length === 0) {
