@@ -47,8 +47,6 @@ test("users meeting recommendation criteria show recommended only when not alrea
     expect(result).toEqual(["Recommended", "Recommended", ""]);
 });
 
-
-
 test("trusted recommendation honors configured threshold and excluded users", () => {
     const settings: ControlSubSettings = {
         ...baseControlSubSettings,
