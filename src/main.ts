@@ -20,7 +20,7 @@ import { perform6HourlyJobs, perform6HourlyJobsPart2 } from "./scheduler/sixHour
 import { checkUptimeAndMessages } from "./uptimeMonitor.js";
 import { handleRapidJob } from "./scheduler/handleRapidJob.js";
 import { buildEvaluatorAccuracyStatistics } from "./statistics/evaluatorAccuracyStatistics.js";
-import { gatherDefinedHandlesStats, storeDefinedHandlesDataJob } from "./statistics/definedHandlesStatistics.js";
+import { definedHandlesStatsInitializer, gatherDefinedHandlesStats, storeDefinedHandlesDataJob } from "./statistics/definedHandlesStatistics.js";
 import { deleteRecordsForRemovedUsers, classificationReversalsJob, reversePostCreationQueue } from "./modmail/evaluatorReversals.js";
 import { handleCommentCreate, handlePostCreate, handlePostSubmit } from "./handleContentCreation.js";
 import { conditionalStatsUpdate } from "./statistics/conditionalStatsUpdate.js";
@@ -152,6 +152,11 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ControlSubredditJob.Perform6HourlyJobsPart2,
     onRun: perform6HourlyJobsPart2,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
+    onRun: definedHandlesStatsInitializer,
 });
 
 Devvit.addSchedulerJob({
