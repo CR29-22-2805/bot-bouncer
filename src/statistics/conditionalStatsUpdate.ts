@@ -107,6 +107,9 @@ async function definedHandlesStatsJobRunner (_: StatsUserEntry[], context: JobCo
     await context.scheduler.runJob({
         name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
         runAt: addSeconds(new Date(), 5),
-        data: { prefixes: ALL_POTENTIAL_USER_PREFIXES } satisfies DefinedHandlesStatsInitializerJobData,
+        data: {
+            firstRun: true,
+            prefixes: ALL_POTENTIAL_USER_PREFIXES,
+        } satisfies DefinedHandlesStatsInitializerJobData,
     });
 };
