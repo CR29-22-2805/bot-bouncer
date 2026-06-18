@@ -64,7 +64,7 @@ export interface UserDetails {
     flags?: UserFlag[];
 }
 
-const ALL_POTENTIAL_USER_PREFIXES = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
+export const ALL_POTENTIAL_USER_PREFIXES = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
 
 function getStoreKey (username: string): string {
     if (username.length === 0) {
@@ -79,9 +79,10 @@ interface DataStoreExtractFilter {
     statuses?: UserStatus[];
     omitFlags?: UserFlag[];
     submitter?: string[];
+    usernameRegex?: RegExp;
 }
 
-async function getDataStoreFiltered (prefix: string, context: TriggerContext, filter?: DataStoreExtractFilter): Promise<Record<string, UserDetails>> {
+export async function getDataStoreFiltered (prefix: string, context: TriggerContext, filter?: DataStoreExtractFilter): Promise<Record<string, UserDetails>> {
     const data = await hGetAllChunked(context.redis.global as RedisClient, getStoreKey(prefix), 10000);
     if (!filter) {
         return _.fromPairs(Object.entries(data).map(([key, value]) => [key, JSON.parse(value) as UserDetails]));
@@ -93,7 +94,7 @@ async function getDataStoreFiltered (prefix: string, context: TriggerContext, fi
 
     const filteredData: Record<string, UserDetails> = {};
 
-    Object.entries(data).forEach(([key, value]) => {
+    Object.entries(data).forEach(([username, value]) => {
         const details = JSON.parse(value) as UserDetails;
         if (sinceTime && details.reportedAt && details.reportedAt < sinceTime) {
             return;
@@ -115,7 +116,11 @@ async function getDataStoreFiltered (prefix: string, context: TriggerContext, fi
             return;
         }
 
-        filteredData[key] = details;
+        if (filter.usernameRegex && !filter.usernameRegex.test(username)) {
+            return;
+        }
+
+        filteredData[username] = details;
     });
 
     return filteredData;

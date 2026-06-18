@@ -1,14 +1,15 @@
-import { JobContext, JSONObject, Post, ScheduledJobEvent } from "@devvit/public-api";
-import { BIO_TEXT_STORE, DISPLAY_NAME_STORE } from "../dataStore.js";
+import { JobContext, JSONObject, Post, ScheduledJobEvent, ZMember } from "@devvit/public-api";
+import { BIO_TEXT_STORE, DISPLAY_NAME_STORE, getDataStoreFiltered, UserStatus } from "../dataStore.js";
 import { addMinutes, addSeconds, format, subMonths } from "date-fns";
 import { getEvaluatorVariable } from "../userEvaluation/evaluatorVariables.js";
 import _ from "lodash";
 import { ControlSubredditJob } from "../constants.js";
 import json2md from "json2md";
-import { StatsUserEntry } from "../scheduler/sixHourlyJobs.js";
+import { FLAGS_TO_EXCLUDE_FROM_STATS } from "../scheduler/sixHourlyJobs.js";
 import { userIsBanned } from "./statsHelpers.js";
 import { parse } from "regjsparser";
 import { expireKeyAt } from "devvit-helpers";
+import pluralize from "pluralize";
 
 const DEFINED_HANDLES_QUEUE = "definedHandlesQueue";
 const DEFINED_HANDLES_DATA = "definedHandlesData";
@@ -32,32 +33,62 @@ interface UserDefinedHandlePost {
 const definedHandlesRecentlyRunKey = "definedHandlesStatsLastRunValue";
 const DEFINED_HANDLES_LOOKBACK_MONTHS = 6;
 
-export async function updateDefinedHandlesStats (allEntries: StatsUserEntry[], context: JobContext) {
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+export type DefinedHandlesStatsInitializerJobData = {
+    prefixes: string[];
+};
+
+export async function definedHandlesStatsInitializer (event: ScheduledJobEvent<DefinedHandlesStatsInitializerJobData>, context: JobContext) {
     if (await context.redis.exists(definedHandlesRecentlyRunKey)) {
         console.log("Defined handles statistics job ran recently; skipping this run.");
         return;
     }
-    await context.redis.set(definedHandlesRecentlyRunKey, "1", { expiration: addMinutes(new Date(), 10) });
-    await expireKeyAt(context.redis, definedHandlesRecentlyRunKey, addMinutes(new Date(), 10));
+    await context.redis.set(definedHandlesRecentlyRunKey, "1", { expiration: addMinutes(new Date(), 2) });
 
+    console.log("Defined Handles: Starting initializer job for defined handles statistics.");
     await context.redis.del(DEFINED_HANDLES_QUEUE, DEFINED_HANDLES_DATA);
-    const recentDefinedHandleData = allEntries
-        .filter(item => item.data.reportedAt && item.data.reportedAt > subMonths(new Date(), DEFINED_HANDLES_LOOKBACK_MONTHS).getTime() && (userIsBanned(item.data)))
-        .map(item => ({ member: item.username, score: item.data.reportedAt ?? 0 }));
 
-    const recentDefinedHandleDataChunked = _.chunk(recentDefinedHandleData, 10000);
-    await Promise.all(recentDefinedHandleDataChunked.map(chunk => context.redis.zAdd(DEFINED_HANDLES_QUEUE, ...chunk)));
-    await expireKeyAt(context.redis, DEFINED_HANDLES_QUEUE, addMinutes(new Date(), 30));
+    const runLimit = addSeconds(new Date(), 10);
+    const { prefixes } = event.data;
 
-    await context.scheduler.runJob({
-        name: ControlSubredditJob.DefinedHandlesStatistics,
-        runAt: addSeconds(new Date(), 1),
-        data: { firstRun: true },
-    });
+    while (prefixes.length > 0 && new Date() < runLimit) {
+        const prefix = prefixes.shift();
+        if (!prefix) {
+            break;
+        }
+
+        const dataForPrefix = await getDataStoreFiltered(prefix, context, {
+            since: subMonths(new Date(), DEFINED_HANDLES_LOOKBACK_MONTHS),
+            statuses: [UserStatus.Banned, UserStatus.Purged],
+            omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
+        });
+
+        const filterdData = Object.entries(dataForPrefix)
+            .filter(([, value]) => userIsBanned(value))
+            .map(([username, value]) => ({ member: username, score: value.reportedAt ?? 0 } satisfies ZMember));
+
+        await context.redis.zAdd(DEFINED_HANDLES_QUEUE, ...filterdData);
+        await expireKeyAt(context.redis, DEFINED_HANDLES_QUEUE, addMinutes(new Date(), 30));
+    }
+
+    if (prefixes.length > 0) {
+        console.log(`Defined Handles: Not all prefixes processed; scheduling another initializer job for remaining ${prefixes.length} ${pluralize("prefix", prefixes.length)}.`);
+        await context.scheduler.runJob({
+            name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
+            runAt: addSeconds(new Date(), 5),
+            data: { prefixes } satisfies DefinedHandlesStatsInitializerJobData,
+        });
+    } else {
+        await context.scheduler.runJob({
+            name: ControlSubredditJob.DefinedHandlesStatistics,
+            runAt: addSeconds(new Date(), 5),
+            data: { firstRun: true },
+        });
+    }
 }
 
 export async function gatherDefinedHandlesStats (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
-    const queuedHandles = await context.redis.zRange(DEFINED_HANDLES_QUEUE, 0, 1999);
+    const queuedHandles = await context.redis.zRange(DEFINED_HANDLES_QUEUE, 0, 4999);
 
     if (queuedHandles.length === 0) {
         console.log("No defined handles found in the queue.");
@@ -65,6 +96,8 @@ export async function gatherDefinedHandlesStats (event: ScheduledJobEvent<JSONOb
         await context.redis.del(DEFINED_HANDLES_QUEUE, DEFINED_HANDLES_DATA);
         return;
     }
+
+    await context.redis.set(definedHandlesRecentlyRunKey, "1", { expiration: addMinutes(new Date(), 2) });
 
     const runLimit = addSeconds(new Date(), 15);
     let processedCount = 0;

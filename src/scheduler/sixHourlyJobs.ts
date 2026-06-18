@@ -8,7 +8,6 @@ import { updateUsernameStatistics } from "../statistics/usernameStatistics.js";
 import { updateDisplayNameStatistics } from "../statistics/displayNameStats.js";
 import { updateSocialLinksStatistics } from "../statistics/socialLinksStatistics.js";
 import { updateBioStatistics } from "../statistics/userBioStatistics.js";
-import { updateDefinedHandlesStats } from "../statistics/definedHandlesStatistics.js";
 import { updateFailedFeedbackStorage } from "../submissionFeedback.js";
 import { analyseBioText } from "../similarBioTextFinder/bioTextFinder.js";
 
@@ -49,6 +48,11 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
         }),
 
         context.scheduler.runJob({
+            name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
+            runAt: addMinutes(new Date(), 2),
+        }),
+
+        context.scheduler.runJob({
             name: ControlSubredditJob.PendingUserFinder,
             runAt: addMinutes(new Date(), 3),
         }),
@@ -81,7 +85,7 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
 
 export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) {
     const allData = await getFullDataStore(context, {
-        since: subMonths(new Date(), 6),
+        since: subMonths(new Date(), 3),
         omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
     });
 
@@ -94,7 +98,6 @@ export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) 
         updateDisplayNameStatistics(allEntries, context),
         updateSocialLinksStatistics(allEntries, context),
         updateBioStatistics(allEntries, context),
-        updateDefinedHandlesStats(allEntries, context),
         updateSubmitterStatistics(allEntries, context),
     ]);
 }

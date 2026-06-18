@@ -189,6 +189,7 @@ export async function dataExtract (message: ModmailMessage, conversationId: stri
         since: request.since ? new Date(request.since) : undefined,
         statuses: request.status,
         submitter: request.submitter,
+        usernameRegex: usernameRegex ? new RegExp(usernameRegex) : undefined,
     });
 
     const data = Object.entries(allData)

@@ -30,8 +30,8 @@ export enum UniversalJob {
 
 export enum ControlSubredditJob {
     EvaluateUser = "evaluateUser",
-    Perform6HourlyJobs = "performDailyJobs",
-    Perform6HourlyJobsPart2 = "performDailyJobsPart2",
+    Perform6HourlyJobs = "perform6HourlyJobs",
+    Perform6HourlyJobsPart2 = "perform6HourlyJobsPart2",
     Perform5MinutelyJobs = "perform5MinutelyJobs",
     PerformMinutelyJobs = "performMinutelyJobs",
     EvaluateKarmaFarmingSubs = "evaluateKarmaFarmingSubs",
@@ -39,6 +39,7 @@ export enum ControlSubredditJob {
     UptimeAndMessageCheck = "uptimeAndMessageCheck",
     RapidJob = "rapidJob",
     EvaluatorAccuracyStatistics = "evaluatorAccuracyStatistics",
+    DefinedHandlesStatisticsInitialiser = "definedHandlesStatisticsInitialiser",
     DefinedHandlesStatistics = "definedHandlesStatistics",
     DefinedHandlesPostStore = "definedHandlesPostStore",
     ClassificationReversals = "classificationReversals",
