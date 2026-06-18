@@ -81,7 +81,7 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
 
 export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) {
     const allData = await getFullDataStore(context, {
-        since: subMonths(new Date(), 3),
+        since: subMonths(new Date(), 6),
         omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
     });
 
