@@ -63,7 +63,7 @@ export async function conditionalStatsUpdate (_: unknown, context: JobContext) {
     console.log(`Conditional Stats Update: Preparing to update statistics for ${configsToUpdate.map(c => c.statName).join(", ")}.`);
 
     const allData = await getFullDataStore(context, {
-        since: subMonths(new Date(), 3),
+        since: subMonths(new Date(), 6),
         omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
     });
 

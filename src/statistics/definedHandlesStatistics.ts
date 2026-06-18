@@ -30,6 +30,7 @@ interface UserDefinedHandlePost {
 }
 
 const definedHandlesRecentlyRunKey = "definedHandlesStatsLastRunValue";
+const DEFINED_HANDLES_LOOKBACK_MONTHS = 6;
 
 export async function updateDefinedHandlesStats (allEntries: StatsUserEntry[], context: JobContext) {
     if (await context.redis.exists(definedHandlesRecentlyRunKey)) {
@@ -40,12 +41,12 @@ export async function updateDefinedHandlesStats (allEntries: StatsUserEntry[], c
     await expireKeyAt(context.redis, definedHandlesRecentlyRunKey, addMinutes(new Date(), 10));
 
     await context.redis.del(DEFINED_HANDLES_QUEUE, DEFINED_HANDLES_DATA);
-    const lastMonthData = allEntries
-        .filter(item => item.data.reportedAt && item.data.reportedAt > subMonths(new Date(), 3).getTime() && (userIsBanned(item.data)))
+    const recentDefinedHandleData = allEntries
+        .filter(item => item.data.reportedAt && item.data.reportedAt > subMonths(new Date(), DEFINED_HANDLES_LOOKBACK_MONTHS).getTime() && (userIsBanned(item.data)))
         .map(item => ({ member: item.username, score: item.data.reportedAt ?? 0 }));
 
-    const lastMonthDataChunked = _.chunk(lastMonthData, 10000);
-    await Promise.all(lastMonthDataChunked.map(chunk => context.redis.zAdd(DEFINED_HANDLES_QUEUE, ...chunk)));
+    const recentDefinedHandleDataChunked = _.chunk(recentDefinedHandleData, 10000);
+    await Promise.all(recentDefinedHandleDataChunked.map(chunk => context.redis.zAdd(DEFINED_HANDLES_QUEUE, ...chunk)));
     await expireKeyAt(context.redis, DEFINED_HANDLES_QUEUE, addMinutes(new Date(), 30));
 
     await context.scheduler.runJob({
@@ -176,14 +177,17 @@ async function buildDefinedHandlesWikiPage (context: JobContext) {
 
     const wikiContent: json2md.DataObject[] = [
         { h1: "Defined Handles Statistics" },
-        { p: "This page lists all defined handles and their usage statistics from the last three months." },
-        { p: "This page only lists handles seen in user bios or display names, not in comments or posts, so is not comprehensive at this time." },
+        { p: "This page lists defined handles that were hit on banned users within the last six months." },
+        { p: "This page checks user bios, display names, and cached post-title hits." },
     ];
+
+    const definedHandlesHitInLookback = existingDefinedHandles.filter(entry => entry.data.count > 0);
+    const definedHandlesNotHitInLookback = existingDefinedHandles.filter(entry => entry.data.count === 0);
 
     const tableRows: string[][] = [];
     const tableHeaders = ["Handle", "Count", "Last Seen", "Found In", "Example Users"];
 
-    for (const entry of existingDefinedHandles) {
+    for (const entry of definedHandlesHitInLookback) {
         const { handle, data } = entry;
 
         const foundInText: string[] = [];
@@ -206,13 +210,21 @@ async function buildDefinedHandlesWikiPage (context: JobContext) {
         ]);
     }
 
+    wikiContent.push({ h2: "Defined handles hit within the last six months" });
     if (tableRows.length > 0) {
         wikiContent.push({ table: { headers: tableHeaders, rows: tableRows } });
     } else {
-        wikiContent.push({ p: "No defined handles found in the last month." });
+        wikiContent.push({ p: "No defined handles found within the last six months." });
     }
 
-    const suggestedHandles = existingDefinedHandles
+    wikiContent.push({ h2: "Defined handles not hit within the last six months" });
+    if (definedHandlesNotHitInLookback.length > 0) {
+        wikiContent.push({ p: `\`${definedHandlesNotHitInLookback.map(entry => entry.handle).join("|")}\`` });
+    } else {
+        wikiContent.push({ p: "All defined handles were hit within the last six months." });
+    }
+
+    const suggestedHandles = definedHandlesHitInLookback
         .filter((entry) => {
             if (entry.data.count === 0) {
                 return false;
