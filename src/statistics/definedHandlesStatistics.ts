@@ -48,7 +48,9 @@ export async function definedHandlesStatsInitializer (event: ScheduledJobEvent<D
     await context.redis.set(definedHandlesRecentlyRunKey, "1", { expiration: addMinutes(new Date(), 2) });
 
     console.log("Defined Handles: Starting initializer job for defined handles statistics.");
-    await context.redis.del(DEFINED_HANDLES_QUEUE, DEFINED_HANDLES_DATA);
+    if (event.data.firstRun) {
+        await context.redis.del(DEFINED_HANDLES_QUEUE, DEFINED_HANDLES_DATA);
+    }
 
     const runLimit = addSeconds(new Date(), 10);
     const { prefixes } = event.data;
