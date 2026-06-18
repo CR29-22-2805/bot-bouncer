@@ -158,6 +158,30 @@ export async function writeUserStatus (username: string, details: UserDetails, c
     }
 }
 
+function usernamesMatch (username1: string | undefined, username2: string | undefined): boolean {
+    if (!username1 || !username2) {
+        return false;
+    }
+
+    return username1.toLowerCase() === username2.toLowerCase();
+}
+
+export function shouldStoreClassificationEvent (currentStatus: UserDetails | undefined, details: UserDetails, appSlug: string | undefined): boolean {
+    if (currentStatus?.userStatus !== UserStatus.Pending || details.userStatus === UserStatus.Pending || !details.operator) {
+        return false;
+    }
+
+    if (usernamesMatch(details.operator, appSlug)) {
+        return false;
+    }
+
+    if (usernamesMatch(details.operator, currentStatus.submitter) || usernamesMatch(details.operator, details.submitter)) {
+        return false;
+    }
+
+    return true;
+}
+
 export async function setUserStatus (username: string, details: UserDetails, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT && !isLinkId(details.trackingPostId) && !isCommentId(details.trackingPostId)) {
         throw new Error(`Tracking post ID is missing or invalid for ${username}: ${details.trackingPostId}!`);
@@ -221,8 +245,9 @@ export async function setUserStatus (username: string, details: UserDetails, con
         }, context);
     }
 
-    if (currentStatus?.userStatus === UserStatus.Pending && details.userStatus !== UserStatus.Pending && details.operator && details.operator !== details.submitter && details.operator !== context.appSlug) {
-        await storeClassificationEvent(details.operator, context);
+    const classificationOperator = details.operator;
+    if (classificationOperator && shouldStoreClassificationEvent(currentStatus, details, context.appSlug)) {
+        await storeClassificationEvent(classificationOperator, context);
     }
 
     if (details.userStatus !== UserStatus.Pending && details.userStatus !== UserStatus.Purged && details.userStatus !== UserStatus.Retired) {
