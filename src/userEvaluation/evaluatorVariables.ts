@@ -3,12 +3,13 @@ import { ValidationIssue, yamlToVariables } from "@fsvreddit/bot-bouncer-evaluat
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import _ from "lodash";
 import { compressData, sendMessageToWebhook } from "../utility.js";
-import json2md from "json2md";
 import { getControlSubSettings } from "../settings.js";
 import { EvaluateBotGroupAdvanced } from "@fsvreddit/bot-bouncer-evaluation/dist/userEvaluation/EvaluateBotGroupAdvanced.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { addSeconds } from "date-fns";
 import { checkNonexistentSubs } from "./subExistenceChecks.js";
+import { buildEvaluatorVariablesErrorDiscordMessage, buildEvaluatorVariablesErrorRedditMessage, type EvaluatorVariablesValidationIssue } from "./evaluatorVariablesConfigErrors.js";
+import { validateEvaluatorVariablesYamlSource } from "./evaluatorVariablesSourceValidation.js";
 
 const EVALUATOR_VARIABLES_KEY = "evaluatorVariablesHash";
 const EVALUATOR_VARIABLES_YAML_PAGE_ROOT = "evaluator-config";
@@ -16,6 +17,7 @@ const EVALUATOR_VARIABLES_WIKI_PAGE = "evaluatorvars";
 const EVALUATOR_VARIABLES_LAST_REVISIONS_KEY = "evaluatorVariablesLastRevisions";
 const EXTRA_VARIABLES_KEY = "extraEvaluatorVariablesHash";
 const EXTRA_VARIABLES_UPDATED_KEY = "extraEvaluatorVariablesUpdated";
+const FAILED_EVALUATOR_VARIABLES_KEY = "failedEvaluatorVariables";
 
 export async function setRedisSubstititionValue (variableName: string, value: string | string[], context: TriggerContext | JobContext) {
     await context.redis.hSet(EXTRA_VARIABLES_KEY, { [variableName]: JSON.stringify(value) });
@@ -32,6 +34,36 @@ export async function getRedisSubstitionValue<T> (variableName: string, context:
 async function getExtraSubstititionValues (context: TriggerContext | JobContext): Promise<Record<string, string | string[]>> {
     const extraVariables = await context.redis.hGetAll(EXTRA_VARIABLES_KEY);
     return _.fromPairs(Object.entries(extraVariables).map(([key, value]) => [`redis:${key}`, JSON.parse(value)]));
+}
+
+async function handleInvalidEvaluatorVariables (invalidEntries: EvaluatorVariablesValidationIssue[], username: string | undefined, context: JobContext) {
+    await context.redis.set(FAILED_EVALUATOR_VARIABLES_KEY, "true");
+    if (!username) {
+        console.error("Evaluator Variables: Evaluator variables contains issues. Will fall back to cached values.");
+        return;
+    }
+
+    console.error("Evaluator Variables: Invalid entries in evaluator variables", invalidEntries);
+
+    let messageBody = buildEvaluatorVariablesErrorRedditMessage(invalidEntries);
+    if (messageBody.length > 10000) {
+        messageBody = messageBody.substring(0, 9997) + "...";
+    }
+
+    const controlSubSettings = await getControlSubSettings(context);
+    if (controlSubSettings.monitoringWebhook) {
+        await sendMessageToWebhook(controlSubSettings.monitoringWebhook, buildEvaluatorVariablesErrorDiscordMessage(username, invalidEntries));
+    }
+
+    try {
+        await context.reddit.sendPrivateMessage({
+            subject: "Problem with evaluator variables config after edit",
+            to: username,
+            text: messageBody,
+        });
+    } catch (error) {
+        console.error(`Evaluator Variables: Failed to send PM to ${username} about invalid evaluator variables.`, error);
+    }
 }
 
 export async function getEvaluatorVariables (context: TriggerContext | JobContext): Promise<Record<string, JSONValue>> {
@@ -108,7 +140,19 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
 
     const extraVariables = await getExtraSubstititionValues(context);
 
-    const variables = yamlToVariables(yamlStr, extraVariables);
+    const sourceIssues = validateEvaluatorVariablesYamlSource(yamlStr);
+    let variables: Record<string, JSONValue>;
+    try {
+        variables = yamlToVariables(yamlStr, extraVariables);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const hasSpecificDuplicateKeyError = /duplicate|map keys must be unique/i.test(errorMessage) && sourceIssues.some(issue => issue.configError?.details.includes("appears more than once"));
+        await handleInvalidEvaluatorVariables([
+            ...sourceIssues,
+            ...(hasSpecificDuplicateKeyError ? [] : [{ severity: "error" as const, message: `YAML could not be parsed: ${errorMessage}` }]),
+        ], event.data?.username as string | undefined, context);
+        return;
+    }
 
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
         const evaluator = new Evaluator({} as unknown as TriggerContext, [], undefined, variables);
@@ -118,7 +162,10 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
         }
     }
 
-    const invalidEntries = await invalidEvaluatorVariableCondition(variables, context);
+    const invalidEntries: EvaluatorVariablesValidationIssue[] = [
+        ...sourceIssues,
+        ...await invalidEvaluatorVariableCondition(variables, context),
+    ];
     const errors = variables.errors as string[] | undefined;
     if (errors && errors.length > 0) {
         invalidEntries.push({ severity: "error", message: errors.join(", ") });
@@ -162,47 +209,9 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
         }
     }
 
-    const failedEvaluatorVariablesKey = "failedEvaluatorVariables";
     if (invalidEntries.length > 0) {
-        await context.redis.set(failedEvaluatorVariablesKey, "true");
-        if (!event.data?.username) {
-            console.error("Evaluator Variables: Evaluator variables contains issues. Will fall back to cached values.");
-            return;
-        } else {
-            console.error("Evaluator Variables: Invalid entries in evaluator variables", invalidEntries);
-
-            const body: json2md.DataObject[] = [
-                { p: "There are invalid regexes in the evaluator variables. Please check the wiki page and try again." },
-                { ul: invalidEntries.map(entry => `${entry.severity}: ${entry.message}`) },
-            ];
-
-            let messageBody = json2md(body);
-            if (messageBody.length > 10000) {
-                messageBody = messageBody.substring(0, 9997) + "...";
-            }
-
-            const username = event.data.username as string;
-            const controlSubSettings = await getControlSubSettings(context);
-            if (controlSubSettings.monitoringWebhook) {
-                const discordMessage: json2md.DataObject[] = [{ p: `${username} has updated the evaluator config, but there's an error! Please check and correct as soon as possible.` }];
-                discordMessage.push({ ul: invalidEntries.map(entry => `${entry.severity}: ${entry.message}`) });
-                discordMessage.push({ p: "Last known good values will be used until the issue is resolved." });
-                console.log(JSON.stringify(discordMessage));
-                await sendMessageToWebhook(controlSubSettings.monitoringWebhook, json2md(discordMessage));
-            }
-
-            try {
-                await context.reddit.sendPrivateMessage({
-                    subject: "Problem with evaluator variables config after edit",
-                    to: username,
-                    text: messageBody,
-                });
-            } catch (error) {
-                console.error(`Evaluator Variables: Failed to send PM to ${username} about invalid evaluator variables.`, error);
-            }
-
-            return;
-        }
+        await handleInvalidEvaluatorVariables(invalidEntries, event.data?.username as string | undefined, context);
+        return;
     }
 
     for (const module of _.uniq(Object.keys(variables).map(key => key.split(":")[0]))) {
@@ -263,8 +272,8 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
         data: { firstRun: true, modName: event.data?.username ?? "unknown" },
     });
 
-    const previouslyFailed = await context.redis.exists(failedEvaluatorVariablesKey);
-    await context.redis.del(failedEvaluatorVariablesKey);
+    const previouslyFailed = await context.redis.exists(FAILED_EVALUATOR_VARIABLES_KEY);
+    await context.redis.del(FAILED_EVALUATOR_VARIABLES_KEY);
     if (previouslyFailed && controlSubSettings.monitoringWebhook) {
         const username = event.data?.username as string | undefined ?? "unknown";
         await sendMessageToWebhook(controlSubSettings.monitoringWebhook, `✅ Successfully updated evaluator variables from wiki edit by /u/${username}.`);
