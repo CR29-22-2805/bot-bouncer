@@ -9,6 +9,7 @@ import { EvaluateBotGroupAdvanced } from "@fsvreddit/bot-bouncer-evaluation/dist
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { addSeconds } from "date-fns";
 import { checkNonexistentSubs } from "./subExistenceChecks.js";
+import { recordEvaluatorConfigEditSummary } from "./configEditSummaries.js";
 
 const EVALUATOR_VARIABLES_KEY = "evaluatorVariablesHash";
 const EVALUATOR_VARIABLES_YAML_PAGE_ROOT = "evaluator-config";
@@ -223,6 +224,19 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
     await context.redis.global.hSet(EVALUATOR_VARIABLES_KEY, converted);
     if (keysToRemove.length > 0) {
         await context.redis.global.hDel(EVALUATOR_VARIABLES_KEY, keysToRemove);
+    }
+
+    if (!event.data?.updateExtraVariables) {
+        const username = event.data?.username as string | undefined ?? "unknown";
+        const actionedAt = typeof event.data?.actionedAt === "number" ? event.data.actionedAt : undefined;
+        const revisionReason = typeof event.data?.revisionReason === "string" ? event.data.revisionReason : undefined;
+        await recordEvaluatorConfigEditSummary({
+            previousVariables: existingVariables,
+            newVariables: converted,
+            updatedBy: username,
+            updatedAt: actionedAt,
+            revisionReason,
+        }, context);
     }
 
     const newRevisions = _.fromPairs(pages.map(page => [page.name, page.revisionId]));

@@ -39,6 +39,7 @@ import { updateTokenStatsMessage } from "./aiAnalysis/statistics.js";
 import { updateMainStatisticsPage } from "./statistics/mainStatistics.js";
 import { checkUserFlaggedRechecksQueue } from "./userEvaluation/flaggedUsersRechecks.js";
 import { processDelayedMessages } from "./modmail/delayedSend.js";
+import { updateEvaluatorConfigEditSummaryPage } from "./userEvaluation/configEditSummaries.js";
 
 Devvit.addSettings(appSettings);
 
@@ -287,6 +288,11 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ControlSubredditJob.ProcessDelayedMessages,
     onRun: processDelayedMessages,
+});
+
+Devvit.addSchedulerJob({
+    name: ControlSubredditJob.UpdateEvaluatorConfigEditSummaryPage,
+    onRun: updateEvaluatorConfigEditSummaryPage,
 });
 
 /**
