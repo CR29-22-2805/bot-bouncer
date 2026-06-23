@@ -1,5 +1,5 @@
-import { JobContext, JSONObject, ScheduledJobEvent, UpdateWikiPageOptions } from "@devvit/public-api";
-import { addHours, addSeconds, format, subDays, subWeeks } from "date-fns";
+import { JobContext, ScheduledJobEvent, UpdateWikiPageOptions } from "@devvit/public-api";
+import { addHours, addSeconds, format, subWeeks } from "date-fns";
 import json2md from "json2md";
 import { BIO_TEXT_STORE } from "../dataStore.js";
 import { getEvaluatorVariable, getRedisSubstitionValue, setRedisSubstititionValue } from "../userEvaluation/evaluatorVariables.js";
@@ -12,7 +12,6 @@ import { expireKeyAt, hGetAllChunked, hMGetAsRecord, zRangeAsRecord } from "devv
 import escapeStringRegexp from "escape-string-regexp";
 import { hSetChunked } from "../redisHelper.js";
 
-const BIO_STATS_SUCCESSFUL_RETRIEVALS = "BioTextStatsSuccessfulRetrievals";
 const BIO_STATS_UPDATE_IN_PROGRESS = "BioTextStatsUpdateInProgressKey";
 
 function getBioQueueKey (statsId: string): string {
@@ -60,28 +59,16 @@ export async function updateBioStatistics (allEntries: StatsUserEntry[], context
 
     await clearDownTemporaryKeys(statsId, context);
 
-    const removedEntries = await context.redis.zRemRangeByScore(BIO_STATS_SUCCESSFUL_RETRIEVALS, 0, subDays(new Date(), 2).getTime());
-    if (removedEntries > 0) {
-        console.log(`Bio Stats: Removed ${removedEntries} stale entries from successful retrievals`);
-    }
-    const successfulRetrievalsEntries = await context.redis.zRange(BIO_STATS_SUCCESSFUL_RETRIEVALS, 0, -1);
-    console.log(`Bio Stats: ${successfulRetrievalsEntries.length} users have successful bio retrievals recently.`);
-
-    const usersWithBios = new Set(await context.redis.hKeys(BIO_TEXT_STORE));
-
-    const nonretrievableUsers = new Set(await getEvaluatorVariable<string[]>("biotext:nonretrievable", context) ?? []);
-
-    const itemsToProcess = recentData.filter(item => usersWithBios.has(item.username) && !nonretrievableUsers.has(item.username));
-    await context.redis.zAdd(getBioQueueKey(statsId), ...itemsToProcess.map(item => ({ member: item.username, score: item.data.reportedAt ?? 0 })));
+    await context.redis.zAdd(getBioQueueKey(statsId), ...recentData.map(item => ({ member: item.username, score: item.data.reportedAt ?? 0 })));
     await expireKeyAt(context.redis, getBioQueueKey(statsId), addHours(new Date(), 1));
 
-    console.log(`Bio Stats: queued ${itemsToProcess.length} users for bio stats processing`);
+    console.log(`Bio Stats: queued ${recentData.length} users for bio stats processing`);
 
     console.log("Bio Stats: Queueing first bio stats update job");
     await context.scheduler.runJob({
         name: ControlSubredditJob.BioStatsUpdate,
         runAt: addSeconds(new Date(), 5),
-        data: { successfulRetrievalsEntries: successfulRetrievalsEntries.map(item => item.member), statsId },
+        data: { statsId },
     });
 }
 
@@ -98,30 +85,36 @@ function sha1hash (input: string): string {
     return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+type BioStatsJobData = {
+    statsId: string;
+    batch?: number;
+};
+
+export async function updateBioStatisticsJob (event: ScheduledJobEvent<BioStatsJobData>, context: JobContext) {
     await context.redis.set(BIO_STATS_UPDATE_IN_PROGRESS, "true", { expiration: addSeconds(new Date(), 30) });
 
-    let batchSize = 500;
+    const batchSize = 2000;
 
-    const statsId = event.data?.statsId as string | undefined;
-    if (!statsId) {
-        console.error("Bio Stats: No statsId provided in job data, cannot process bio statistics update");
-        return;
-    }
+    const statsId = event.data.statsId;
 
     const queueItems = await context.redis.zRange(getBioQueueKey(statsId), 0, batchSize - 1);
     if (Object.keys(queueItems).length === 0) {
         console.log("Bio Stats: No users in queue, generating report");
 
+        const jobData: BioStatsJobData = {
+            statsId,
+        };
+
         await context.scheduler.runJob({
             name: ControlSubredditJob.BioStatsGenerateReport,
             runAt: addSeconds(new Date(), 2),
-            data: { statsId },
+            data: jobData,
         });
         return;
     }
 
-    const batch = event.data?.batch as number | undefined ?? 1;
+    const batch = event.data.batch ?? 1;
     console.log(`Bio Stats: Running bio statistics gather job (batch ${batch})`);
 
     const runLimit = addSeconds(new Date(), 10);
@@ -129,21 +122,7 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
     const configuredBioRegexes = await getEvaluatorVariable<string[]>("biotext:bantext", context) ?? [];
     const entriesToAllowlist = await getEvaluatorVariable<string[]>("biotext:entriesToAllowlist", context) ?? [];
 
-    const successfulRetrievalsUsers = event.data?.successfulRetrievalsEntries as string [] | undefined ?? [];
-    const usersWithSuccessfulRetrievals = new Set(successfulRetrievalsUsers);
-
-    const queuedUsersWithSuccessfulRetrievals = queueItems.filter(item => usersWithSuccessfulRetrievals.has(item.member)).map(item => item.member);
-    if (queuedUsersWithSuccessfulRetrievals.length > 0) {
-        console.log(`Bio Stats: ${queuedUsersWithSuccessfulRetrievals.length} users have recent successful retrievals`);
-    } else {
-        console.log("Bio Stats: No users in queue have recent successful retrievals");
-    }
-
-    if (queuedUsersWithSuccessfulRetrievals.length < queueItems.length) {
-        batchSize = 100;
-    }
-
-    const userBios = await hMGetAsRecord(context.redis, BIO_TEXT_STORE, queuedUsersWithSuccessfulRetrievals);
+    const userBios = await hMGetAsRecord(context.redis, BIO_TEXT_STORE, queueItems.map(item => item.member));
 
     const recordsToStore = await hGetAllChunked(context.redis, getBioStatsTempStoreKey(statsId));
 
@@ -154,10 +133,6 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
 
     const bioTextCounts: Record<string, number> = {};
 
-    if (queuedUsersWithSuccessfulRetrievals.length > 0) {
-        await context.redis.zRem(BIO_STATS_SUCCESSFUL_RETRIEVALS, queuedUsersWithSuccessfulRetrievals);
-    }
-
     while (queueItems.length > 0 && new Date() < runLimit && processed.length < batchSize) {
         const firstEntry = queueItems.shift();
         if (!firstEntry) {
@@ -165,15 +140,7 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
         }
 
         const username = firstEntry.member;
-        let bioText: string | undefined = userBios[username];
-        if (!bioText) {
-            console.log(`Bio Stats: Getting bio for user u/${username} from Redis`);
-            try {
-                bioText = await context.redis.hGet(BIO_TEXT_STORE, username);
-            } catch (error) {
-                console.error(`Bio Stats: Error retrieving bio for u/${username}: ${error}`);
-            }
-        }
+        const bioText: string | undefined = userBios[username];
 
         if (!bioText || bioText.trim().length < 4) {
             processed.push(username);
@@ -213,7 +180,6 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
 
     if (processed.length > 0) {
         await context.redis.zRem(getBioQueueKey(statsId), processed);
-        await context.redis.zAdd(BIO_STATS_SUCCESSFUL_RETRIEVALS, ...processed.map(username => ({ member: username, score: Date.now() })));
     }
 
     const bioTextCountEntries = Object.entries(bioTextCounts).map(([encodedBioText, count]) => ({ member: encodedBioText, score: count }));
@@ -230,21 +196,22 @@ export async function updateBioStatisticsJob (event: ScheduledJobEvent<JSONObjec
 
     console.log(`Bio Stats: Processed ${processed.length} users, stored bios for ${biosStored} users, batch ${batch} complete.`);
 
+    const jobData: BioStatsJobData = {
+        statsId,
+        batch: batch + 1,
+    };
+
     await context.scheduler.runJob({
         name: ControlSubredditJob.BioStatsUpdate,
         runAt: addSeconds(new Date(), 1),
-        data: {
-            successfulRetrievalsEntries: successfulRetrievalsUsers,
-            batch: batch + 1,
-            statsId,
-        },
+        data: jobData,
     });
 }
 
-export async function generateBioStatisticsReport (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+export async function generateBioStatisticsReport (event: ScheduledJobEvent<BioStatsJobData>, context: JobContext) {
     console.log("Bio Stats: Generating bio statistics report");
 
-    const statsId = event.data?.statsId as string | undefined;
+    const statsId = event.data.statsId;
     if (!statsId) {
         console.error("Bio Stats: No statsId provided in job data, cannot generate report");
         return;

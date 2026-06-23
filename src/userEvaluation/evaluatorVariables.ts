@@ -67,9 +67,11 @@ async function handleInvalidEvaluatorVariables (invalidEntries: EvaluatorVariabl
 }
 
 export async function getEvaluatorVariables (context: TriggerContext | JobContext): Promise<Record<string, JSONValue>> {
+    const subredditName = context.subredditName ?? await context.reddit.getCurrentSubredditName();
+
     let allVariables: Record<string, string>;
 
-    if (context.subredditName === CONTROL_SUBREDDIT) {
+    if (subredditName === CONTROL_SUBREDDIT) {
         allVariables = await context.redis.global.hGetAll(EVALUATOR_VARIABLES_KEY);
     } else {
         allVariables = await context.redis.hGetAll(EVALUATOR_VARIABLES_KEY);
@@ -78,7 +80,7 @@ export async function getEvaluatorVariables (context: TriggerContext | JobContex
             allVariables = await context.redis.global.hGetAll(EVALUATOR_VARIABLES_KEY);
             await context.redis.hSet(EVALUATOR_VARIABLES_KEY, allVariables);
             await context.redis.expire(EVALUATOR_VARIABLES_KEY, 300); // 5 minutes
-            console.log(`Evaluator Variables: Refreshed ${Object.keys(allVariables).length} evaluator variables to subreddit ${context.subredditName} from global store.`);
+            console.log(`Evaluator Variables: Refreshed ${Object.keys(allVariables).length} evaluator variables to subreddit ${subredditName} from global store.`);
         }
     }
 

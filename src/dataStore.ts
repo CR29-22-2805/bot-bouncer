@@ -11,8 +11,9 @@ import json2md from "json2md";
 import { getUsernameFromUrl, sendMessageToWebhook } from "./utility.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { storeClassificationEvent } from "./statistics/classificationStatistics.js";
-import { USER_DEFINED_HANDLES_POSTS } from "./statistics/definedHandlesStatistics.js";
 import { ZMember } from "@devvit/protos";
+
+export const USER_DEFINED_HANDLES_POSTS = "userDefinedHandlesPosts";
 import { getUserSocialLinks, hGetAllChunked } from "devvit-helpers";
 import { removeUserFromReversalsQueue } from "./modmail/evaluatorReversals.js";
 
@@ -64,7 +65,7 @@ export interface UserDetails {
     flags?: UserFlag[];
 }
 
-const ALL_POTENTIAL_USER_PREFIXES = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
+export const ALL_POTENTIAL_USER_PREFIXES = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
 
 function getStoreKey (username: string): string {
     if (username.length === 0) {
@@ -79,9 +80,10 @@ interface DataStoreExtractFilter {
     statuses?: UserStatus[];
     omitFlags?: UserFlag[];
     submitter?: string[];
+    usernameRegex?: RegExp;
 }
 
-async function getDataStoreFiltered (prefix: string, context: TriggerContext, filter?: DataStoreExtractFilter): Promise<Record<string, UserDetails>> {
+export async function getDataStoreFiltered (prefix: string, context: TriggerContext, filter?: DataStoreExtractFilter): Promise<Record<string, UserDetails>> {
     const data = await hGetAllChunked(context.redis.global as RedisClient, getStoreKey(prefix), 10000);
     if (!filter) {
         return _.fromPairs(Object.entries(data).map(([key, value]) => [key, JSON.parse(value) as UserDetails]));
@@ -93,7 +95,11 @@ async function getDataStoreFiltered (prefix: string, context: TriggerContext, fi
 
     const filteredData: Record<string, UserDetails> = {};
 
-    Object.entries(data).forEach(([key, value]) => {
+    Object.entries(data).forEach(([username, value]) => {
+        if (filter.usernameRegex && !filter.usernameRegex.test(username)) {
+            return;
+        }
+
         const details = JSON.parse(value) as UserDetails;
         if (sinceTime && details.reportedAt && details.reportedAt < sinceTime) {
             return;
@@ -115,7 +121,7 @@ async function getDataStoreFiltered (prefix: string, context: TriggerContext, fi
             return;
         }
 
-        filteredData[key] = details;
+        filteredData[username] = details;
     });
 
     return filteredData;
@@ -156,6 +162,30 @@ export async function writeUserStatus (username: string, details: UserDetails, c
         console.error(`Failed to write user status of ${details.userStatus} for ${username}:`, error);
         throw new Error(`Failed to write user status for ${username}`);
     }
+}
+
+function usernamesMatch (username1: string | undefined, username2: string | undefined): boolean {
+    if (!username1 || !username2) {
+        return false;
+    }
+
+    return username1.toLowerCase() === username2.toLowerCase();
+}
+
+export function shouldStoreClassificationEvent (currentStatus: UserDetails | undefined, details: UserDetails, appSlug: string | undefined): boolean {
+    if (currentStatus?.userStatus !== UserStatus.Pending || details.userStatus === UserStatus.Pending || !details.operator) {
+        return false;
+    }
+
+    if (usernamesMatch(details.operator, appSlug)) {
+        return false;
+    }
+
+    if (usernamesMatch(details.operator, currentStatus.submitter) || usernamesMatch(details.operator, details.submitter)) {
+        return false;
+    }
+
+    return true;
 }
 
 export async function setUserStatus (username: string, details: UserDetails, context: TriggerContext) {
@@ -221,11 +251,14 @@ export async function setUserStatus (username: string, details: UserDetails, con
         }, context);
     }
 
-    if (currentStatus?.userStatus === UserStatus.Pending && details.userStatus !== UserStatus.Pending && details.operator && details.operator !== details.submitter && details.operator !== context.appSlug) {
-        await storeClassificationEvent(details.operator, context);
+    const classificationOperator = details.operator;
+    if (classificationOperator && shouldStoreClassificationEvent(currentStatus, details, context.appSlug)) {
+        await storeClassificationEvent(classificationOperator, context);
     }
 
-    await context.redis.global.zAdd(RECENT_CHANGES_STORE, { member: username, score: new Date().getTime() });
+    if (details.userStatus !== UserStatus.Pending && details.userStatus !== UserStatus.Purged && details.userStatus !== UserStatus.Retired) {
+        await context.redis.global.zAdd(RECENT_CHANGES_STORE, { member: username, score: new Date().getTime() });
+    }
 
     if (details.userStatus === UserStatus.Banned) {
         await removeUserFromReversalsQueue(username, context);

@@ -4,7 +4,7 @@ import { getUserOrUndefined, isBannedWithCache, isModeratorWithCache } from "./u
 import { getUserStatus, UserStatus } from "./dataStore.js";
 import { addExternalSubmissionFromClientSub } from "./externalSubmissions.js";
 import { queryForm, reportForm } from "./main.js";
-import { addMinutes, subMonths } from "date-fns";
+import { addDays, addMinutes, subMonths } from "date-fns";
 import { getControlSubSettings } from "./settings.js";
 import { handleControlSubReportUser } from "./handleControlSubMenu.js";
 import { recordReportForSummary } from "./modmail/actionSummary.js";
@@ -62,7 +62,7 @@ export const reportFormDefinition: FormFunction = data => ({
             label: "Receive a notification when this account is classified",
             helpText: data.feedbackHelpText as string,
             disabled: data.feedbackDisabled as boolean,
-            defaultValue: (data.sendFeedbackDefaultValue as boolean | undefined) ?? false,
+            defaultValue: data.userFeedbackPreference as boolean | undefined ?? false,
             name: ReportFormField.SendFeedback,
         },
     ],
@@ -81,6 +81,19 @@ async function getAlreadyReported (username: string, context: TriggerContext): P
 
 async function setAlreadyReported (username: string, context: TriggerContext) {
     await context.redis.set(getAlreadyReportedKey(username), "", { expiration: addMinutes(new Date(), 10) });
+}
+
+function getUserFeedbackPreferenceKey (username: string): string {
+    return `userFeedbackPreference:${username}`;
+}
+
+async function getUserFeedbackPreference (username: string, context: TriggerContext): Promise<boolean> {
+    const value = await context.redis.get(getUserFeedbackPreferenceKey(username));
+    return value === "true";
+}
+
+async function setUserFeedbackPreference (username: string, preference: boolean, context: TriggerContext) {
+    await context.redis.set(getUserFeedbackPreferenceKey(username), JSON.stringify(preference), { expiration: addDays(new Date(), 28) });
 }
 
 export async function handleReportUser (event: MenuItemOnPressEvent, context: Context) {
@@ -165,6 +178,7 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
         : false;
     const data = {
         username: target.authorName,
+        userFeedbackPreference: await getUserFeedbackPreference(currentUser.username, context),
         feedbackHelpText: canReceiveFeedback ? "You must be able to receive chat messages from /u/bot-bouncer to receive this notification" : "We've tried to send feedback for you several times but this hasn't worked. Check to make sure you can receive chats from /u/bot-bouncer. This option will return within 24h.",
         feedbackDisabled: !canReceiveFeedback,
         sendFeedbackDefaultValue,
@@ -229,6 +243,10 @@ export async function reportFormHandler (event: FormOnSubmitEvent<JSONObject>, c
     await setAlreadyReported(target.authorName, context);
 
     context.ui.showToast(`${target.authorName} has been submitted to /r/${CONTROL_SUBREDDIT}. A tracking post will be created shortly.`);
+
+    if (currentUser?.username) {
+        await setUserFeedbackPreference(currentUser.username, event.values[ReportFormField.SendFeedback] as boolean | undefined ?? false, context);
+    }
 }
 
 export const queryFormDefinition: FormFunction = data => ({

@@ -1,16 +1,16 @@
 import { JobContext, TriggerContext } from "@devvit/public-api";
 import { updateSubmitterStatistics } from "../statistics/submitterStatistics.js";
 import { createTimeOfSubmissionStatistics } from "../statistics/timeOfSubmissionStatistics.js";
-import { checkDataStoreIntegrity, getFullDataStore, removeStaleRecentChangesEntries, UserDetails, UserFlag } from "../dataStore.js";
+import { ALL_POTENTIAL_USER_PREFIXES, checkDataStoreIntegrity, getFullDataStore, removeStaleRecentChangesEntries, UserDetails, UserFlag } from "../dataStore.js";
 import { CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import { addMinutes, subMonths } from "date-fns";
 import { updateUsernameStatistics } from "../statistics/usernameStatistics.js";
 import { updateDisplayNameStatistics } from "../statistics/displayNameStats.js";
 import { updateSocialLinksStatistics } from "../statistics/socialLinksStatistics.js";
 import { updateBioStatistics } from "../statistics/userBioStatistics.js";
-import { updateDefinedHandlesStats } from "../statistics/definedHandlesStatistics.js";
 import { updateFailedFeedbackStorage } from "../submissionFeedback.js";
 import { analyseBioText } from "../similarBioTextFinder/bioTextFinder.js";
+import { DefinedHandlesStatsInitializerJobData } from "../statistics/definedHandlesStatistics.js";
 
 export const FLAGS_TO_EXCLUDE_FROM_STATS: UserFlag[] = [
     UserFlag.HackedAndRecovered,
@@ -46,6 +46,15 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
         context.scheduler.runJob({
             name: ControlSubredditJob.Perform6HourlyJobsPart2,
             runAt: addMinutes(new Date(), 1),
+        }),
+
+        context.scheduler.runJob({
+            name: ControlSubredditJob.DefinedHandlesStatisticsInitialiser,
+            runAt: addMinutes(new Date(), 2),
+            data: {
+                firstRun: true,
+                prefixes: ALL_POTENTIAL_USER_PREFIXES,
+            } satisfies DefinedHandlesStatsInitializerJobData,
         }),
 
         context.scheduler.runJob({
@@ -94,7 +103,6 @@ export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) 
         updateDisplayNameStatistics(allEntries, context),
         updateSocialLinksStatistics(allEntries, context),
         updateBioStatistics(allEntries, context),
-        updateDefinedHandlesStats(allEntries, context),
         updateSubmitterStatistics(allEntries, context),
     ]);
 }
