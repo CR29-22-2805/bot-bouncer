@@ -48,6 +48,11 @@ If an account was banned by Bot Bouncer on a sub but successfully appeals via r/
 
 # Latest Changes
 
+## v1.32.0 (coming soon)
+
+* When reporting bots, the "Receive Feedback" option defaults to the last value chosen
+* Better handling of bot accounts that edit content into posts and comments
+
 ## v1.31.0
 
 * Add option (enabled by default when action type is "Ban and remove") to remove queued posts/comments from users after they are banned
