@@ -11,8 +11,9 @@ import json2md from "json2md";
 import { getUsernameFromUrl, sendMessageToWebhook } from "./utility.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { storeClassificationEvent } from "./statistics/classificationStatistics.js";
-import { USER_DEFINED_HANDLES_POSTS } from "./statistics/definedHandlesStatistics.js";
 import { ZMember } from "@devvit/protos";
+
+export const USER_DEFINED_HANDLES_POSTS = "userDefinedHandlesPosts";
 import { getUserSocialLinks, hGetAllChunked } from "devvit-helpers";
 import { removeUserFromReversalsQueue } from "./modmail/evaluatorReversals.js";
 
@@ -95,6 +96,10 @@ export async function getDataStoreFiltered (prefix: string, context: TriggerCont
     const filteredData: Record<string, UserDetails> = {};
 
     Object.entries(data).forEach(([username, value]) => {
+        if (filter.usernameRegex && !filter.usernameRegex.test(username)) {
+            return;
+        }
+
         const details = JSON.parse(value) as UserDetails;
         if (sinceTime && details.reportedAt && details.reportedAt < sinceTime) {
             return;
@@ -113,10 +118,6 @@ export async function getDataStoreFiltered (prefix: string, context: TriggerCont
         }
 
         if (filter.submitter && !filter.submitter.includes(details.submitter ?? "")) {
-            return;
-        }
-
-        if (filter.usernameRegex && !filter.usernameRegex.test(username)) {
             return;
         }
 
