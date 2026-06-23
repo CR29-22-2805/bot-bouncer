@@ -18,11 +18,11 @@ function getUnbansKey (date: Date) {
     return `digest:unbans:${format(date, `yyyy-MM-dd`)}`;
 }
 
-type DigestSummaryCounts = {
+interface DigestSummaryCounts {
     reported: number | undefined;
     banned: number | undefined;
     unbanned: number | undefined;
-};
+}
 
 function buildDigestSummaryComment (subredditName: string, intervalText: string, counts: DigestSummaryCounts) {
     const countTexts: string[] = [];
