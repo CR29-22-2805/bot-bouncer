@@ -230,7 +230,7 @@ export function buildEvaluatorConfigEditSummaryWikiPage (summaries: EvaluatorCon
     const lines = [
         "# Evaluator config edit summaries",
         "",
-        `This page is updated hourly and keeps evaluator-config edit summaries from the past ${CONFIG_EDIT_SUMMARY_RETENTION_DAYS} days.`,
+        `This page is updated at the top of the next hour after an evaluator-config edit and shows edit summaries from the past ${CONFIG_EDIT_SUMMARY_RETENTION_DAYS} days (as of the last update).`
         "",
         `Last updated: **${formatUtcTimestamp(now.getTime())}**`,
         "",
