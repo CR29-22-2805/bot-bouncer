@@ -3,7 +3,6 @@ import { processFeedbackQueue } from "../submissionFeedback.js";
 import { handleClassificationQueryQueue } from "../modmail/classificationQuery.js";
 import { areAnyDelayedMessagesQueued } from "../modmail/delayedSend.js";
 import { CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
-import { getControlSubSettings } from "../settings.js";
 import { checkBotPostFreshness } from "./botPostMonitor.js";
 
 export async function handleMinutelyJob (_: unknown, context: JobContext) {
@@ -22,6 +21,6 @@ export async function handleMinutelyJob (_: unknown, context: JobContext) {
     await Promise.allSettled([
         processFeedbackQueue(context),
         handleClassificationQueryQueue(context),
-        getControlSubSettings(context).then(settings => checkBotPostFreshness(settings, context)),
+        checkBotPostFreshness(context),
     ]);
 }
