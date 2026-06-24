@@ -280,6 +280,7 @@ export interface ControlSubSettings {
     uptimeMonitoringEnabled?: boolean;
     messageMonitoringEnabled?: boolean;
     botPostMonitoringEnabled?: boolean;
+    botPostMonitorThresholdMinutes?: number;
     monitoringWebhook?: string;
     botNotificationsWebhook?: string;
     backlogWebhook?: string;
@@ -321,6 +322,7 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         uptimeMonitoringEnabled: { type: "boolean", nullable: true },
         messageMonitoringEnabled: { type: "boolean", nullable: true },
         botPostMonitoringEnabled: { type: "boolean", nullable: true },
+        botPostMonitorThresholdMinutes: { type: "number", nullable: true },
         monitoringWebhook: { type: "string", nullable: true },
         botNotificationsWebhook: { type: "string", nullable: true },
         backlogWebhook: { type: "string", nullable: true },
