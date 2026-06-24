@@ -275,19 +275,9 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
 
     await storeKeyForAppeal(modmail.conversationId, context);
 
-    const message = await getSummaryForUser(username, "modmail", context);
-
-    const modmailStrings = markdownToText(message);
-
-    for (const string of modmailStrings) {
-        await context.reddit.modMail.reply({
-            body: string,
-            conversationId: modmail.conversationId,
-            isInternal: true,
-        });
-    }
 
     if (currentStatus.userStatus !== UserStatus.Banned && currentStatus.userStatus !== UserStatus.Purged) {
+        await addSummaryForUser(modmail.conversationId, username, context);
         // User is not banned or purged, so we should not send the "Appeal Received" message.
         return;
     }
@@ -295,6 +285,7 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
     const user = await getUserOrUndefined(username, context);
     if (!user) {
         // User is not found, so we should not send the "Appeal Received" message.
+        await addSummaryForUser(modmail.conversationId, username, context);
         await context.reddit.modMail.reply({
             body: CONFIGURATION_DEFAULTS.appealShadowbannedMessage,
             conversationId: modmail.conversationId,
@@ -307,16 +298,20 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
 
     const appealOutcomeType = await handleAppeal(modmail, currentStatus, context);
 
-    if (currentStatus.userStatus === UserStatus.Banned && appealOutcomeType !== AppealOutcomeType.StatusChanged) {
-        await context.scheduler.runJob({
-            name: ControlSubredditJob.OpenAISummaryGather,
-            data: {
-                username,
-                conversationId: modmail.conversationId,
-                userMessage: modmail.bodyMarkdown,
-            },
-            runAt: addSeconds(new Date(), 5),
-        });
+    if (appealOutcomeType !== AppealOutcomeType.AppealGranted) {
+        await addSummaryForUser(modmail.conversationId, username, context);
+
+        if (currentStatus.userStatus === UserStatus.Banned) {
+            await context.scheduler.runJob({
+                name: ControlSubredditJob.OpenAISummaryGather,
+                data: {
+                    username,
+                    conversationId: modmail.conversationId,
+                    userMessage: modmail.bodyMarkdown,
+                },
+                runAt: addSeconds(new Date(), 5),
+            });
+        }
     }
 
     await context.redis.set(recentAppealKey, new Date().getTime().toString(), { expiration: addDays(new Date(), 1) });
