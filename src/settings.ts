@@ -279,7 +279,10 @@ export interface ControlSubSettings {
     cleanupDisabled?: boolean;
     uptimeMonitoringEnabled?: boolean;
     messageMonitoringEnabled?: boolean;
+    botPostMonitoringEnabled?: boolean;
+    botPostMonitorThresholdMinutes?: number;
     monitoringWebhook?: string;
+    botNotificationsWebhook?: string;
     backlogWebhook?: string;
     banNoteCheckingEnabled?: boolean;
     observerSubreddits?: string[];
@@ -318,7 +321,10 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         cleanupDisabled: { type: "boolean", nullable: true },
         uptimeMonitoringEnabled: { type: "boolean", nullable: true },
         messageMonitoringEnabled: { type: "boolean", nullable: true },
+        botPostMonitoringEnabled: { type: "boolean", nullable: true },
+        botPostMonitorThresholdMinutes: { type: "number", nullable: true },
         monitoringWebhook: { type: "string", nullable: true },
+        botNotificationsWebhook: { type: "string", nullable: true },
         backlogWebhook: { type: "string", nullable: true },
         banNoteCheckingEnabled: { type: "boolean", nullable: true },
         observerSubreddits: { type: "array", items: { type: "string" }, nullable: true },
