@@ -2,6 +2,7 @@ import { JobContext } from "@devvit/public-api";
 import { CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import _ from "lodash";
 import { addHours, subDays } from "date-fns";
+import pluralize from "pluralize";
 
 const CONFIG_EDIT_SUMMARIES_KEY = "evaluatorConfigEditSummaries";
 const CONFIG_EDIT_SUMMARY_JOB_QUEUED_KEY = "evaluatorConfigEditSummaryJobQueued";
@@ -203,7 +204,9 @@ function groupSummaries (summaries: EvaluatorConfigEditSummary[]): EvaluatorConf
 
     for (const summary of ascending) {
         const currentGroup = groups[groups.length - 1];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         const previousSummary = currentGroup?.[currentGroup.length - 1];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!currentGroup || !previousSummary || summary.timestamp - previousSummary.timestamp > REVISION_GROUP_INACTIVITY_THRESHOLD_MS) {
             groups.push([summary]);
         } else {
@@ -215,11 +218,11 @@ function groupSummaries (summaries: EvaluatorConfigEditSummary[]): EvaluatorConf
 }
 
 function pluralizeRevision (count: number): string {
-    return `${count} evaluator-config ${count === 1 ? "revision" : "revisions"}`;
+    return `${count} evaluator-config ${pluralize("revision", count)}`;
 }
 
 function pluralizeModerator (count: number): string {
-    return `${count} ${count === 1 ? "moderator" : "moderators"}`;
+    return `${count} ${pluralize("moderator", count)}`;
 }
 
 export function buildEvaluatorConfigEditSummaryWikiPage (summaries: EvaluatorConfigEditSummary[], now = new Date()): string {
@@ -230,7 +233,7 @@ export function buildEvaluatorConfigEditSummaryWikiPage (summaries: EvaluatorCon
     const lines = [
         "# Evaluator config edit summaries",
         "",
-        `This page is updated at the top of the next hour after an evaluator-config edit and shows edit summaries from the past ${CONFIG_EDIT_SUMMARY_RETENTION_DAYS} days (as of the last update).`
+        `This page is updated at the top of the next hour after an evaluator-config edit and shows edit summaries from the past ${CONFIG_EDIT_SUMMARY_RETENTION_DAYS} days (as of the last update).`,
         "",
         `Last updated: **${formatUtcTimestamp(now.getTime())}**`,
         "",
