@@ -8,6 +8,7 @@ import pluralize from "pluralize";
 import { queueSendFeedback } from "./submissionFeedback.js";
 import { formatTimeSince, isBannedWithCache, sendMessageToWebhook, updateWebhookMessage } from "./utility.js";
 import { isUserSubmitterOrMod } from "./cleanup.js";
+import { recordBotPostCreated } from "./scheduler/botPostMonitor.js";
 
 export const statusToFlair: Record<UserStatus, PostFlairTemplate> = {
     [UserStatus.Pending]: PostFlairTemplate.Pending,
@@ -105,6 +106,12 @@ async function createNewSubmission (submission: AsyncSubmission, context: Trigge
         flairId: statusToFlair[submission.details.userStatus],
         nsfw: submission.user.nsfw,
     });
+
+    try {
+        await recordBotPostCreated(newPost, context);
+    } catch (error) {
+        console.error("Bot Post Monitor: Error recording new bot post.", error);
+    }
 
     submission.details.trackingPostId = newPost.id;
     submission.details.reportedAt = Date.now();
