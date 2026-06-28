@@ -106,6 +106,23 @@ enum ConfigWikiPage {
     ControlSubSettings = "controlSubSettings",
 }
 
+
+function getRevisionReasonFromModAction (event: ModAction): string | undefined {
+    const modActionRecord = event as unknown as Record<string, unknown>;
+    const candidates = [
+        modActionRecord.details,
+        modActionRecord.description,
+        modActionRecord.reason,
+        modActionRecord.actionReason,
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim().length > 0) {
+            return candidate.trim();
+        }
+    }
+}
+
 async function handleModActionControlSub (event: ModAction, context: TriggerContext) {
     /**
      * When the wiki gets revised on the control subreddit, it may be because another
@@ -128,7 +145,11 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
                 context.scheduler.runJob({
                     name: ControlSubredditJob.UpdateEvaluatorVariables,
                     runAt: new Date(),
-                    data: { username: event.moderator.name },
+                    data: {
+                        username: event.moderator.name,
+                        actionedAt: event.actionedAt?.getTime(),
+                        revisionReason: getRevisionReasonFromModAction(event),
+                    },
                 }),
 
                 queueConfigWikiCheck(ConfigWikiPage.AutoAppealHandling, event.moderator.name, 1, context),
