@@ -57,7 +57,6 @@ export enum ControlSubredditJob {
     CheckPermissionQueueItems = "checkPermissionQueueItems",
     AccountReview = "accountReview",
     PendingUserFinder = "pendingUserFinder",
-    BotSleuthBotExtract = "botSleuthBotExtract",
     OpenAISummaryGather = "openAISummary",
     OpenAISummaryLookup = "openAISummaryLookup",
     OpenAIUpdateTokenStatsMessage = "openAIUpdateTokenStatsMessage",

@@ -32,7 +32,6 @@ import { checkPermissionQueueItems, handlePermissionCheckEnqueueJob } from "./pe
 import { handleFiveMinutelyJob } from "./scheduler/fiveMinutelyJobs.js";
 import { checkAccountsForReview } from "./modmail/accountReview.js";
 import { pendingUserFinder } from "./statistics/pendingUserFinder.js";
-import { doBotSleuthBotExtract } from "./botSleuthBotExtract.js";
 import { handleMinutelyJob } from "./scheduler/handleMinutelyJob.js";
 import { generateOpenAISummary, openAISummaryLookupAndRespond } from "./aiAnalysis/createAISummary.js";
 import { updateTokenStatsMessage } from "./aiAnalysis/statistics.js";
@@ -267,11 +266,6 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ControlSubredditJob.PendingUserFinder,
     onRun: pendingUserFinder,
-});
-
-Devvit.addSchedulerJob({
-    name: ControlSubredditJob.BotSleuthBotExtract,
-    onRun: doBotSleuthBotExtract,
 });
 
 Devvit.addSchedulerJob({
