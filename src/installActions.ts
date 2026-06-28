@@ -114,11 +114,6 @@ async function addControlSubredditJobs (context: TriggerContext) {
         }),
 
         context.scheduler.runJob({
-            name: ControlSubredditJob.BotSleuthBotExtract,
-            cron: "0 3 * * *",
-        }),
-
-        context.scheduler.runJob({
             name: UniversalJob.Cleanup,
             cron: "* * * * *",
             data: { firstRun: true },
