@@ -52,7 +52,7 @@ function serializeBotPostRecord (record: BotPostRecord): string {
 
 function parseBotPostRecord (record: string): BotPostRecord | undefined {
     try {
-        const parsed = JSON.parse(record) as { createdAt?: string, id?: string };
+        const parsed = JSON.parse(record) as { createdAt?: string; id?: string };
         if (!parsed.createdAt) {
             return undefined;
         }
