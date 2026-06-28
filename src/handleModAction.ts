@@ -1,4 +1,4 @@
-import { JobContext, JSONObject, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
+import { JobContext, JSONObject, JSONValue, ScheduledJobEvent, TriggerContext } from "@devvit/public-api";
 import { ModAction } from "@devvit/protos";
 import { ClientSubredditJob, CONTROL_SUBREDDIT, ControlSubredditJob, INTERNAL_BOT } from "./constants.js";
 import { clearAppPermissionsCache, recordWhitelistUnban, removeRecordOfBan } from "./handleClientSubredditClassificationChanges.js";
@@ -106,7 +106,6 @@ enum ConfigWikiPage {
     ControlSubSettings = "controlSubSettings",
 }
 
-
 function getRevisionReasonFromModAction (event: ModAction): string | undefined {
     const modActionRecord = event as unknown as Record<string, unknown>;
     const candidates = [
@@ -141,15 +140,24 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
         }
 
         if (event.moderator.name !== context.appSlug && event.moderator.name !== INTERNAL_BOT) {
+            const jobData: Record<string, JSONValue> = {
+                username: event.moderator.name,
+            };
+
+            if (event.actionedAt) {
+                jobData.actionedAt = event.actionedAt.getTime();
+            }
+
+            const revisionReason = getRevisionReasonFromModAction(event);
+            if (revisionReason) {
+                jobData.revisionReason = revisionReason;
+            }
+
             await Promise.all([
                 context.scheduler.runJob({
                     name: ControlSubredditJob.UpdateEvaluatorVariables,
                     runAt: new Date(),
-                    data: {
-                        username: event.moderator.name,
-                        actionedAt: event.actionedAt?.getTime(),
-                        revisionReason: getRevisionReasonFromModAction(event),
-                    },
+                    data: jobData,
                 }),
 
                 queueConfigWikiCheck(ConfigWikiPage.AutoAppealHandling, event.moderator.name, 1, context),
