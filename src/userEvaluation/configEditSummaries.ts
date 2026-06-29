@@ -6,9 +6,11 @@ import pluralize from "pluralize";
 
 const CONFIG_EDIT_SUMMARIES_KEY = "evaluatorConfigEditSummaries";
 const CONFIG_EDIT_SUMMARY_JOB_QUEUED_KEY = "evaluatorConfigEditSummaryJobQueued";
+const EVALUATOR_CONFIG_WIKI_PAGE = "evaluator-config";
 const CONFIG_EDIT_SUMMARY_WIKI_PAGE = "evaluator-config-summaries";
 const CONFIG_EDIT_SUMMARY_RETENTION_DAYS = 14;
 const REVISION_GROUP_INACTIVITY_THRESHOLD_MS = 20 * 60 * 1000;
+const REVISION_REASON_LOOKUP_WINDOW_MS = 5 * 60 * 1000;
 
 interface ModuleChangeSummary {
     added: number;
@@ -28,6 +30,12 @@ interface RecordEvaluatorConfigEditSummaryOptions {
     updatedBy: string;
     updatedAt?: number;
     revisionReason?: string;
+}
+
+interface WikiRevisionSummary {
+    timestamp: number;
+    updatedBy: string;
+    reason?: string;
 }
 
 function parseStoredVariables (variables: Record<string, string>): Record<string, unknown> {
@@ -140,6 +148,73 @@ function sanitizeInlineText (input: string): string {
     return input.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeRevisionReason (input: string | undefined): string | undefined {
+    const reason = sanitizeInlineText(input ?? "");
+    if (reason.length === 0 || reason.toLowerCase() === "no revision reason provided.") {
+        return;
+    }
+
+    return reason;
+}
+
+async function loadEvaluatorConfigWikiRevisions (context: JobContext): Promise<WikiRevisionSummary[]> {
+    try {
+        const revisions = await context.reddit.getWikiPageRevisions({
+            subredditName: CONTROL_SUBREDDIT,
+            page: EVALUATOR_CONFIG_WIKI_PAGE,
+            limit: 100,
+        }).all();
+
+        return revisions
+            .map(revision => ({
+                timestamp: revision.date.getTime(),
+                updatedBy: revision.author.username,
+                reason: normalizeRevisionReason(revision.reason),
+            }))
+            .sort((a, b) => b.timestamp - a.timestamp);
+    } catch (error) {
+        console.error("Evaluator Config Edit Summaries: Failed to load evaluator-config wiki revisions.", error);
+        return [];
+    }
+}
+
+function findMatchingRevisionReason (revisions: WikiRevisionSummary[], updatedBy: string, updatedAt?: number): string | undefined {
+    const matchingModeratorRevisions = revisions.filter(revision => revision.updatedBy === updatedBy && revision.reason);
+    if (matchingModeratorRevisions.length === 0) {
+        return;
+    }
+
+    if (updatedAt === undefined) {
+        return matchingModeratorRevisions[0].reason;
+    }
+
+    return matchingModeratorRevisions
+        .filter(revision => Math.abs(revision.timestamp - updatedAt) <= REVISION_REASON_LOOKUP_WINDOW_MS)
+        .sort((a, b) => Math.abs(a.timestamp - updatedAt) - Math.abs(b.timestamp - updatedAt))[0]
+        ?.reason;
+}
+
+async function resolveEvaluatorConfigRevisionReason (context: JobContext, updatedBy: string, updatedAt?: number): Promise<string | undefined> {
+    const revisions = await loadEvaluatorConfigWikiRevisions(context);
+    return findMatchingRevisionReason(revisions, updatedBy, updatedAt);
+}
+
+async function hydrateMissingRevisionReasons (summaries: EvaluatorConfigEditSummary[], context: JobContext): Promise<EvaluatorConfigEditSummary[]> {
+    if (summaries.every(summary => normalizeRevisionReason(summary.revisionReason))) {
+        return summaries;
+    }
+
+    const revisions = await loadEvaluatorConfigWikiRevisions(context);
+    return summaries.map((summary) => {
+        if (normalizeRevisionReason(summary.revisionReason)) {
+            return summary;
+        }
+
+        const revisionReason = findMatchingRevisionReason(revisions, summary.updatedBy, summary.timestamp);
+        return revisionReason ? { ...summary, revisionReason } : summary;
+    });
+}
+
 function formatUtcTimestamp (timestamp: number): string {
     return new Date(timestamp).toISOString().substring(0, 16).replace("T", " ") + " UTC";
 }
@@ -192,7 +267,7 @@ function formatSummaryLine (summary: EvaluatorConfigEditSummary): string {
         .filter((value): value is string => Boolean(value))
         .join("; ");
 
-    const revisionReason = sanitizeInlineText(summary.revisionReason ?? "No revision reason provided.");
+    const revisionReason = normalizeRevisionReason(summary.revisionReason) ?? "No revision reason provided.";
     const changeText = changes.length > 0 ? changes : "no countable variable changes";
 
     return `* **${formatUtcTimestamp(summary.timestamp)}**; applied by **${sanitizeInlineText(summary.updatedBy)}**; ${changeText}. Revision reason: ${ensureSentenceEnd(revisionReason)}`;
@@ -313,12 +388,15 @@ export async function recordEvaluatorConfigEditSummary (options: RecordEvaluator
     }
 
     const now = new Date();
+    const timestamp = options.updatedAt ?? now.getTime();
+    const revisionReason = normalizeRevisionReason(options.revisionReason)
+        ?? await resolveEvaluatorConfigRevisionReason(context, options.updatedBy, timestamp);
     const summaries = await loadSummaries(context);
     summaries.push({
-        timestamp: options.updatedAt ?? now.getTime(),
+        timestamp,
         updatedBy: options.updatedBy,
         changes,
-        revisionReason: options.revisionReason,
+        revisionReason,
     });
 
     await saveSummaries(summaries, context, now);
@@ -331,7 +409,7 @@ export async function updateEvaluatorConfigEditSummaryPage (_: unknown, context:
     }
 
     const now = new Date();
-    const summaries = await loadSummaries(context);
+    const summaries = await hydrateMissingRevisionReasons(await loadSummaries(context), context);
     await saveSummaries(summaries, context, now);
 
     const retainedSummaries = summaries.filter(summary => summary.timestamp >= subDays(now, CONFIG_EDIT_SUMMARY_RETENTION_DAYS).getTime());
