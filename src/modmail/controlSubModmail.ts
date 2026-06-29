@@ -4,6 +4,7 @@ import { getUserStatus, UserStatus } from "../dataStore.js";
 import { getSummaryForUser } from "../UserSummary/userSummary.js";
 import { getUserOrUndefined, isModeratorWithCache } from "../utility.js";
 import { CONFIGURATION_DEFAULTS, getControlSubSettings } from "../settings.js";
+import { addPriorDeniedAppealNotice, clearPriorDeniedAppealRecord, clearsPriorDeniedAppealRecord, recordPriorDeniedAppeal } from "./deniedAppealRecords.js";
 import { addDays, addHours, addSeconds, addWeeks, format, subDays, subMinutes } from "date-fns";
 import json2md from "json2md";
 import { ModmailMessage } from "./modmail.js";
@@ -116,6 +117,7 @@ export async function handleControlSubredditModmail (modmail: ModmailMessage, co
     }
 
     if (!modmail.isInternal && modmail.messageAuthor !== context.appSlug) {
+        await recordDeniedAppealIfApplicable(modmail, context);
         await markAppealAsHandled(modmail, context);
     }
 
@@ -159,6 +161,10 @@ export async function handleControlSubredditModmail (modmail: ModmailMessage, co
                     subredditName: CONTROL_SUBREDDIT,
                 });
 
+                if (clearsPriorDeniedAppealRecord(newStatus)) {
+                    await clearPriorDeniedAppealRecord(username, context.redis);
+                }
+
                 await context.reddit.modMail.reply({
                     conversationId: modmail.conversationId,
                     body: `User status for ${username} changed to ${newStatus}.`,
@@ -173,6 +179,20 @@ export async function handleControlSubredditModmail (modmail: ModmailMessage, co
             }
         }
     }
+}
+
+async function recordDeniedAppealIfApplicable (modmail: ModmailMessage, context: TriggerContext) {
+    if (!modmail.participant || !await isActiveAppeal(modmail.conversationId, context)) {
+        return;
+    }
+
+    const currentStatus = await getUserStatus(modmail.participant, context);
+    if (!currentStatus || (currentStatus.userStatus !== UserStatus.Banned && currentStatus.userStatus !== UserStatus.Purged)) {
+        return;
+    }
+
+    const appealReceivedAt = await getAppealReceivedAt(modmail.conversationId, context);
+    await recordPriorDeniedAppeal(modmail, currentStatus, appealReceivedAt, context);
 }
 
 export function markdownToText (markdown: json2md.DataObject[], limit = 5000): string[] {
@@ -297,7 +317,13 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
 
     const appealOutcomeType = await handleAppeal(modmail, currentStatus, context);
 
+    if (appealOutcomeType === AppealOutcomeType.AppealGranted) {
+        await clearPriorDeniedAppealRecord(username, context.redis);
+    }
+
     if (appealOutcomeType !== AppealOutcomeType.AppealGranted) {
+        const controlSubSettings = await getControlSubSettings(context);
+        await addPriorDeniedAppealNotice(modmail, controlSubSettings, context);
         await addSummaryForUser(modmail.conversationId, username, context);
 
         if (currentStatus.userStatus === UserStatus.Banned) {
@@ -332,6 +358,21 @@ export async function isActiveAppeal (conversationId: string, context: TriggerCo
     const key = getKeyForAppeal(conversationId);
     const value = await context.redis.get(key);
     return value !== undefined;
+}
+
+export async function getAppealReceivedAt (conversationId: string, context: TriggerContext): Promise<number | undefined> {
+    const key = getKeyForAppeal(conversationId);
+    const value = await context.redis.get(key);
+    if (!value) {
+        return undefined;
+    }
+
+    const timestamp = parseInt(value, 10);
+    if (Number.isNaN(timestamp)) {
+        return undefined;
+    }
+
+    return timestamp;
 }
 
 export async function deleteKeyForAppeal (conversationId: string, context: TriggerContext) {
