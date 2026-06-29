@@ -300,6 +300,7 @@ export interface ControlSubSettings {
     openAIMinimumContentCount?: number;
     openAINotificationsWebhook?: string;
     appRemovedMessage?: string;
+    priorDeniedAppealWarningDays?: number;
 }
 
 const CONTROL_SUB_SETTINGS_WIKI_PAGE = "control-sub-settings";
@@ -343,6 +344,7 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         openAIMinimumContentCount: { type: "number", nullable: true },
         openAINotificationsWebhook: { type: "string", nullable: true },
         appRemovedMessage: { type: "string", nullable: true },
+        priorDeniedAppealWarningDays: { type: "number", nullable: true },
     },
     required: ["evaluationDisabled", "trustedSubmitters", "reporterBlacklist"],
 };

@@ -10,6 +10,7 @@ import { addToReversalsQueue } from "./modmail/evaluatorReversals.js";
 import { statusToFlair } from "./postCreation.js";
 import { submitAccountForReview } from "./modmail/accountReview.js";
 import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
+import { clearPriorDeniedAppealRecord, clearsPriorDeniedAppealRecord } from "./modmail/deniedAppealRecords.js";
 
 interface FlairMapping {
     postFlair: string;
@@ -96,6 +97,10 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
             flairTemplateId: mapping.destinationFlair,
         });
 
+        if (clearsPriorDeniedAppealRecord(mapping.flagToSet)) {
+            await clearPriorDeniedAppealRecord(username, context.redis);
+        }
+
         if (mapping.removeFromDatabaseAfterDays) {
             await addToReversalsQueue(username, mapping.removeFromDatabaseAfterDays, context);
         }
@@ -153,6 +158,10 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
     }
 
     await setUserStatus(username, newStatus, context);
+
+    if (clearsPriorDeniedAppealRecord(newStatus.userStatus)) {
+        await clearPriorDeniedAppealRecord(username, context.redis);
+    }
 
     console.log(`Flair Update: Status for ${username} set to ${newStatus.userStatus} by ${operator}`);
 
