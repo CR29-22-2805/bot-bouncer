@@ -7,6 +7,7 @@
   "scripts": {
     "deploy": "devvit publish && devvit install botbouncer",
     "logs": "devvit logs botbouncer --verbose --since 5m",
+    "lint": "eslint .",
     "test": "npm run test:unit",
     "test:unit": "vitest --run"
   },
