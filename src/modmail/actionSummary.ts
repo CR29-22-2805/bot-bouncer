@@ -1,6 +1,6 @@
 import { JobContext, RedisClient, TxClientLike, ZMember } from "@devvit/public-api";
 import { addDays, format, getDay, subDays } from "date-fns";
-import { getUserStatus } from "../dataStore.js";
+import { getUserStatus, UserStatus } from "../dataStore.js";
 import { AppSetting, DigestFrequency } from "../settings.js";
 import json2md from "json2md";
 import { expireKeyAt } from "devvit-helpers";
@@ -22,6 +22,77 @@ interface DigestSummaryCounts {
     reported: number | undefined;
     banned: number | undefined;
     unbanned: number | undefined;
+}
+
+interface ReportStatusCounts {
+    pending: number;
+    banned: number;
+    organic: number;
+    purged: number;
+    other: number;
+    unknown: number;
+}
+
+function getPeriodSummaryText (frequency: DigestFrequency) {
+    const periodLength = frequency === DigestFrequency.Daily ? "24 hours" : "7 days";
+
+    return `${periodLength} ending ${format(new Date(), `yyyy-MM-dd`)} 00:00 UTC`;
+}
+
+function getAccountText (count: number) {
+    return count === 1 ? "account" : "accounts";
+}
+
+function createReportStatusCounts (): ReportStatusCounts {
+    return {
+        pending: 0,
+        banned: 0,
+        organic: 0,
+        purged: 0,
+        other: 0,
+        unknown: 0,
+    };
+}
+
+function addReportStatusCount (counts: ReportStatusCounts, status: UserStatus | undefined) {
+    switch (status) {
+        case UserStatus.Pending:
+            counts.pending++;
+            break;
+        case UserStatus.Banned:
+            counts.banned++;
+            break;
+        case UserStatus.Organic:
+            counts.organic++;
+            break;
+        case UserStatus.Purged:
+            counts.purged++;
+            break;
+        case undefined:
+            counts.unknown++;
+            break;
+        default:
+            counts.other++;
+    }
+}
+
+function buildReportStatusSummary (counts: ReportStatusCounts) {
+    const summaryParts = [
+        `${counts.pending} now pending`,
+        `${counts.banned} now banned`,
+        `${counts.organic} now deemed organic`,
+        `${counts.purged} now purged`,
+    ];
+
+    if (counts.other > 0) {
+        summaryParts.push(`${counts.other} now listed with another status`);
+    }
+
+    if (counts.unknown > 0) {
+        summaryParts.push(`${counts.unknown} not currently listed`);
+    }
+
+    return summaryParts.join("; ");
 }
 
 function buildDigestSummaryComment (subredditName: string, intervalText: string, counts: DigestSummaryCounts) {
@@ -69,6 +140,7 @@ export async function sendDailySummary (_: unknown, context: JobContext) {
 
     const [frequency] = settings[AppSetting.DigestFrequency] as [DigestFrequency];
     const intervalText = frequency === DigestFrequency.Daily ? "yesterday" : "in the last week";
+    const periodSummaryText = getPeriodSummaryText(frequency);
 
     if (frequency === DigestFrequency.Weekly && (getDay(new Date()) !== 1)) {
         return;
@@ -115,17 +187,20 @@ export async function sendDailySummary (_: unknown, context: JobContext) {
         if (reports.length === 0) {
             message.push({ p: `No new potential bots were reported on /r/${subredditName} ${intervalText}.` });
         } else {
-            message.push({ p: `The following potential bots were reported on /r/${subredditName} ${intervalText}:` });
-
+            const reportStatusCounts = createReportStatusCounts();
             const bullets: string[] = [];
-            for (const entry of reports.filter(r => r.type === "manually")) {
+            for (const entry of reports) {
                 const currentStatus = await getUserStatus(entry.username, context);
+                addReportStatusCount(reportStatusCounts, currentStatus?.userStatus);
                 if (currentStatus) {
                     bullets.push(`/u/${entry.username} reported ${entry.type}: now listed as ${currentStatus.userStatus}`);
                 } else {
                     bullets.push(`/u/${entry.username} reported ${entry.type}`);
                 }
             }
+
+            message.push({ p: `${reports.length} ${getAccountText(reports.length)} reported on /r/${subredditName} during ${periodSummaryText}.` });
+            message.push({ p: buildReportStatusSummary(reportStatusCounts) });
             message.push({ ul: bullets });
         }
     }
@@ -134,7 +209,7 @@ export async function sendDailySummary (_: unknown, context: JobContext) {
         if (bans.length === 0) {
             message.push({ p: `No new bans were issued by Bot Bouncer on /r/${subredditName} ${intervalText}.` });
         } else {
-            message.push({ p: `The following users were banned on /r/${subredditName} ${intervalText}:` });
+            message.push({ p: `${bans.length} ${getAccountText(bans.length)} banned on /r/${subredditName} during ${periodSummaryText}.` });
             message.push({ ul: bans.map(ban => `/u/${ban.member}`) });
         }
     }
@@ -143,7 +218,7 @@ export async function sendDailySummary (_: unknown, context: JobContext) {
         if (unbans.length === 0) {
             message.push({ p: `No new unbans were processed by Bot Bouncer on /r/${subredditName} ${intervalText}.` });
         } else {
-            message.push({ p: `The following users were unbanned on /r/${subredditName} ${intervalText}:` });
+            message.push({ p: `${unbans.length} ${getAccountText(unbans.length)} unbanned on /r/${subredditName} during ${periodSummaryText}.` });
             message.push({ ul: unbans.map(unban => `/u/${unban.member}`) });
         }
     }
