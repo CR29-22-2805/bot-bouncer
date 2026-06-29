@@ -49,6 +49,7 @@ export enum AppSetting {
     Action = "action",
     LockContentWhenRemoving = "lockContentWhenRemoving",
     RemoveFromModqueueWhenBanning = "removeFromModqueueWhenBanning",
+    RemoveReportedContentOnReport = "removeReportedContentOnReport",
     BanMessage = "banMessage",
     AutoWhitelist = "autoWhitelist",
     ExemptApprovedUsers = "exemptApprovedUsers",
@@ -110,6 +111,13 @@ export const appSettings: SettingsFormField[] = [
                 label: "Remove content from modqueue when banning",
                 helpText: "If banning users, also remove user content from the modqueue",
                 defaultValue: true,
+            },
+            {
+                type: "boolean",
+                name: AppSetting.RemoveReportedContentOnReport,
+                label: "Remove content when reporting users to Bot Bouncer",
+                helpText: "If enabled, using the post/comment context menu to report a user to Bot Bouncer will also remove the reported post or comment from this subreddit.",
+                defaultValue: false,
             },
             {
                 type: "boolean",
