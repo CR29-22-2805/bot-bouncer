@@ -80,6 +80,14 @@ export enum ClientSubredditJob {
 }
 
 /**
+ * Job names: Observer Subreddit
+ */
+
+export enum ObserverSubredditJob {
+    HandleObserverSubMinutelyJob = "handleObserverSubMinutelyJob",
+}
+
+/**
  * Evaluator helper consts
  */
 export const ALL_RELEVANT_EVALUTORS = [
