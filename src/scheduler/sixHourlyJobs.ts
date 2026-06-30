@@ -11,6 +11,7 @@ import { updateBioStatistics } from "../statistics/userBioStatistics.js";
 import { updateFailedFeedbackStorage } from "../submissionFeedback.js";
 import { analyseBioText } from "../similarBioTextFinder/bioTextFinder.js";
 import { DefinedHandlesStatsInitializerJobData } from "../statistics/definedHandlesStatistics.js";
+import { updateHackedProfileFingerprintStatistics } from "../hackedProfileFingerprints.js";
 
 export const FLAGS_TO_EXCLUDE_FROM_STATS: UserFlag[] = [
     UserFlag.HackedAndRecovered,
@@ -104,6 +105,7 @@ export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) 
         updateSocialLinksStatistics(allEntries, context),
         updateBioStatistics(allEntries, context),
         updateSubmitterStatistics(allEntries, context),
+        updateHackedProfileFingerprintStatistics(allEntries, context),
     ]);
 }
 

@@ -11,11 +11,12 @@ import { getEvaluatorVariables } from "../userEvaluation/evaluatorVariables.js";
 import { EvaluationResult, getAccountInitialEvaluationResults } from "../handleControlSubAccountEvaluation.js";
 import json2md from "json2md";
 import markdownEscape from "markdown-escape";
-import { BIO_TEXT_STORE, getUserStatus } from "../dataStore.js";
+import { getInitialAccountProperties, getUserStatus } from "../dataStore.js";
 import { getUserSocialLinks } from "devvit-helpers";
 import { getSubmitterSuccessRate } from "../statistics/submitterStatistics.js";
 import { getSummaryExtras } from "./summaryExtras.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT } from "../constants.js";
+import { getHackedProfileFingerprintSummary } from "../hackedProfileFingerprints.js";
 
 function formatDifferenceInDates (start: Date, end: Date) {
     const units: (keyof Duration)[] = ["years", "months", "days"];
@@ -288,7 +289,8 @@ export async function getSummaryForUser (username: string, source: "modmail" | "
     }
 
     if (source === "modmail") {
-        const originalBio = await context.redis.hGet(BIO_TEXT_STORE, username);
+        const initialAccountProperties = await getInitialAccountProperties(username, context);
+        const originalBio = initialAccountProperties.bioText;
         if (originalBio && originalBio.trim() !== userBio?.trim()) {
             if (userBio?.includes("\n")) {
                 summary.push({ p: "Original bio:" });
@@ -297,6 +299,8 @@ export async function getSummaryForUser (username: string, source: "modmail" | "
                 summary.push({ p: `Original bio: ${cleanedBio(originalBio, sitewideBannedDomains)}` });
             }
         }
+
+        summary.push(...await getHackedProfileFingerprintSummary(username, userStatus, context));
     }
 
     let userComments: Comment[];
