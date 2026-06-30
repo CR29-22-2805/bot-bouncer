@@ -1,7 +1,7 @@
 /* eslint-disable @stylistic/quote-props */
-import { Comment, ModNote, Post, TriggerContext, UserSocialLink } from "@devvit/public-api";
+import { Comment, ModNote, Post, TriggerContext } from "@devvit/public-api";
 import Ajv, { JSONSchemaType } from "ajv";
-import { BIO_TEXT_STORE, SOCIAL_LINKS_STORE, UserDetails, UserFlag, UserStatus } from "../dataStore.js";
+import { getInitialAccountProperties, UserDetails, UserFlag, UserStatus } from "../dataStore.js";
 import { getControlSubSettings } from "../settings.js";
 import { CONTROL_SUBREDDIT } from "../constants.js";
 import { parseAllDocuments } from "yaml";
@@ -339,9 +339,9 @@ export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDe
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const socialLinks = appealConfig.some(config => config.socialLinkRegex || config["~socialLinkRegex"]) ? await getUserSocialLinks(username, context.metadata) : [];
 
-    const originalBio = await context.redis.hGet(BIO_TEXT_STORE, username.toLowerCase());
-    const originalSocialLinks = await context.redis.hGet(SOCIAL_LINKS_STORE, username.toLowerCase())
-        .then(data => data ? JSON.parse(data) as UserSocialLink[] : []);
+    const initialAccountProperties = await getInitialAccountProperties(username, context);
+    const originalBio = initialAccountProperties.bioText;
+    const originalSocialLinks = initialAccountProperties.socialLinks;
 
     let modNotes: ModNote[] = [];
 
