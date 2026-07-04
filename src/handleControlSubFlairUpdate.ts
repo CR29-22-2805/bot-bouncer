@@ -9,7 +9,6 @@ import { addHours, addSeconds } from "date-fns";
 import { addToReversalsQueue } from "./modmail/evaluatorReversals.js";
 import { statusToFlair } from "./postCreation.js";
 import { submitAccountForReview } from "./modmail/accountReview.js";
-import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 import { fixPostTriggerEvent, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 import { clearPriorDeniedAppealRecord, clearsPriorDeniedAppealRecord } from "./modmail/deniedAppealRecords.js";
 
