@@ -51,6 +51,7 @@ If an account was banned by Bot Bouncer on a sub but successfully appeals via r/
 ## v1.32.0 (coming soon)
 
 * Fixed an issue detecting bots where the post or comment had been removed or filtered
+* Add option to remove content when manually reporting accounts to r/BotBoucer
 * When reporting bots, the "Receive Feedback" option defaults to the last value chosen
 * Better handling of bot accounts that edit content into posts and comments
 * Action summary modmail now sends a very short summary after so that modmail isn't dominated with one large message
