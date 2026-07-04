@@ -6,7 +6,7 @@ import _ from "lodash";
 import crypto from "crypto";
 import { ControlSubredditJob } from "./constants.js";
 import { getInitialAccountProperties, getInitialAccountPropertiesForUsers, UserFlag, UserStatus } from "./dataStore.js";
-import type { InitialAccountProperties, UserDetails } from "./dataStore.js";
+import type { InitialAccountProperties, UserDetails } from "./dataStore.js"; import { domainFromUrl } from "./utility.js";
 import { hSetChunked } from "./redisHelper.js";
 import type { StatsUserEntry } from "./scheduler/sixHourlyJobs.js";
 import { userIsBanned } from "./statistics/statsHelpers.js";
