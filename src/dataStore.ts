@@ -278,7 +278,10 @@ export async function deleteUserStatus (username: string, context: TriggerContex
     await context.redis.global.hDel(getStoreKey(username), [username]);
     await context.redis.global.zRem(RECENT_CHANGES_STORE, [username]);
 
-    await deleteAccountInitialEvaluationResults(username, context); await context.redis.hDel(BIO_TEXT_STORE, [username]); await context.redis.hDel(DISPLAY_NAME_STORE, [username]); await context.redis.hDel(SOCIAL_LINKS_STORE, [username]);
+    await deleteAccountInitialEvaluationResults(username, context);
+    await context.redis.hDel(BIO_TEXT_STORE, [username]);
+    await context.redis.hDel(DISPLAY_NAME_STORE, [username]);
+    await context.redis.hDel(SOCIAL_LINKS_STORE, [username]);
     await context.redis.hDel(USER_DEFINED_HANDLES_POSTS, [username]);
 
     await context.redis.global.zRem(TEMP_DECLINE_STORE, [username]);
@@ -363,7 +366,40 @@ function parseSocialLinks (socialLinks: string | undefined): UserSocialLink[] {
     }
 }
 
-export async function getInitialAccountProperties (username: string, context: TriggerContext): Promise<InitialAccountProperties> { const [bioText, displayName, socialLinks] = await Promise.all([ context.redis.hGet(BIO_TEXT_STORE, username), context.redis.hGet(DISPLAY_NAME_STORE, username), context.redis.hGet(SOCIAL_LINKS_STORE, username), ]); return { bioText, displayName, socialLinks: parseSocialLinks(socialLinks), }; } export async function getInitialAccountPropertiesForUsers (usernames: string[], context: TriggerContext): Promise<Record<string, InitialAccountProperties>> { const [bioTexts, displayNames, socialLinks] = await Promise.all([ context.redis.hMGet(BIO_TEXT_STORE, usernames), context.redis.hMGet(DISPLAY_NAME_STORE, usernames), context.redis.hMGet(SOCIAL_LINKS_STORE, usernames), ]); const results: Record<string, InitialAccountProperties> = {}; for (let i = 0; i < usernames.length; i++) { results[usernames[i]] = { bioText: bioTexts[i], displayName: displayNames[i], socialLinks: parseSocialLinks(socialLinks[i]), }; } return results; } export async function addUserToTempDeclineStore (username: string, context: TriggerContext) {
+export async function getInitialAccountProperties (username: string, context: TriggerContext): Promise<InitialAccountProperties> {
+    const [bioText, displayName, socialLinks] = await Promise.all([
+        context.redis.hGet(BIO_TEXT_STORE, username),
+        context.redis.hGet(DISPLAY_NAME_STORE, username),
+        context.redis.hGet(SOCIAL_LINKS_STORE, username),
+    ]);
+
+    return {
+        bioText,
+        displayName,
+        socialLinks: parseSocialLinks(socialLinks),
+    };
+}
+
+export async function getInitialAccountPropertiesForUsers (usernames: string[], context: TriggerContext): Promise<Record<string, InitialAccountProperties>> {
+    const [bioTexts, displayNames, socialLinks] = await Promise.all([
+        context.redis.hMGet(BIO_TEXT_STORE, usernames),
+        context.redis.hMGet(DISPLAY_NAME_STORE, usernames),
+        context.redis.hMGet(SOCIAL_LINKS_STORE, usernames),
+    ]);
+
+    const results: Record<string, InitialAccountProperties> = {};
+    for (let i = 0; i < usernames.length; i++) {
+        results[usernames[i]] = {
+            bioText: bioTexts[i],
+            displayName: displayNames[i],
+            socialLinks: parseSocialLinks(socialLinks[i]),
+        };
+    }
+
+    return results;
+}
+
+export async function addUserToTempDeclineStore (username: string, context: TriggerContext) {
     await context.redis.global.zAdd(TEMP_DECLINE_STORE, { member: username, score: new Date().getTime() });
     await context.redis.global.zAdd(RECENT_CHANGES_STORE, { member: username, score: new Date().getTime() });
 
