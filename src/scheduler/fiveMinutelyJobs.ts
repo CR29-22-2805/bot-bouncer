@@ -28,15 +28,6 @@ export async function handleFiveMinutelyJob (_: unknown, context: JobContext) {
         runAt: new Date(),
     });
 
-    await context.scheduler.runJob({
-        name: ControlSubredditJob.UpdateEvaluatorVariables,
-        runAt: new Date(),
-        data: {
-            username: context.appSlug,
-            updateExtraVariables: false,
-        },
-    });
-
     await Promise.allSettled([
         processHighlightedModmailQueue(context),
         gatherTokenStatistics(context),
