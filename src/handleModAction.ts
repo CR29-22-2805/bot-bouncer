@@ -183,7 +183,7 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
             return;
         }
 
-        const message = `A post by a non-mod has been approved on r/${CONTROL_SUBREDDIT}. This may be a mistake.\n\n`
+        const message = `A post by a non-mod has been approved on r/${CONTROL_SUBREDDIT} by ${event.moderator?.name ?? "an unknown moderator"}. This may be a mistake.\n\n`
             + `[${post.title}](https://www.reddit.com${post.permalink}) by u/${post.authorName}`;
 
         await sendMessageToWebhook(controlSubSettings.monitoringWebhook, message);
@@ -200,7 +200,7 @@ async function handleModActionControlSub (event: ModAction, context: TriggerCont
             return;
         }
 
-        const message = `A post by Bot Bouncer has been removed on r/${CONTROL_SUBREDDIT}. This may be a mistake.\n\n`
+        const message = `A post by Bot Bouncer has been removed on r/${CONTROL_SUBREDDIT} by ${event.moderator?.name ?? "an unknown moderator"}. This may be a mistake.\n\n`
             + `[${post.title}](https://www.reddit.com${post.permalink})`;
 
         await sendMessageToWebhook(controlSubSettings.monitoringWebhook, message);

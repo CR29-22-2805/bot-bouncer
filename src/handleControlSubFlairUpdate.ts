@@ -10,6 +10,7 @@ import { addToReversalsQueue } from "./modmail/evaluatorReversals.js";
 import { statusToFlair } from "./postCreation.js";
 import { submitAccountForReview } from "./modmail/accountReview.js";
 import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
+import { fixPostTriggerEvent, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 import { clearPriorDeniedAppealRecord, clearsPriorDeniedAppealRecord } from "./modmail/deniedAppealRecords.js";
 
 interface FlairMapping {
@@ -46,6 +47,8 @@ export async function handleControlSubFlairUpdate (event: PostFlairUpdate, conte
     if (context.subredditName !== CONTROL_SUBREDDIT) {
         return;
     }
+
+    event = await fixPostTriggerEvent(event, context);
 
     if (!event.author?.name || !event.post) {
         return;

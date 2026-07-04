@@ -1,5 +1,5 @@
 import { Devvit, FormField } from "@devvit/public-api";
-import { ClientSubredditJob, CONTROL_SUBREDDIT, ControlSubredditJob, UniversalJob } from "./constants.js";
+import { ClientSubredditJob, CONTROL_SUBREDDIT, ControlSubredditJob, ObserverSubredditJob, UniversalJob } from "./constants.js";
 import { handleInstallOrUpgrade } from "./installActions.js";
 import { handleControlSubFlairUpdate } from "./handleControlSubFlairUpdate.js";
 import { appSettings } from "./settings.js";
@@ -39,6 +39,7 @@ import { updateMainStatisticsPage } from "./statistics/mainStatistics.js";
 import { checkUserFlaggedRechecksQueue } from "./userEvaluation/flaggedUsersRechecks.js";
 import { processDelayedMessages } from "./modmail/delayedSend.js";
 import { updateEvaluatorConfigEditSummaryPage } from "./userEvaluation/configEditSummaries.js";
+import { handleObserverSubMinutelyJob } from "./scheduler/handleObserverSubMinutelyJob.js";
 
 Devvit.addSettings(appSettings);
 
@@ -336,6 +337,15 @@ Devvit.addSchedulerJob({
 Devvit.addSchedulerJob({
     name: ClientSubredditJob.PermissionCheckEnqueue,
     onRun: handlePermissionCheckEnqueueJob,
+});
+
+/**
+ * Jobs that run on observer subreddits only
+ */
+
+Devvit.addSchedulerJob({
+    name: ObserverSubredditJob.HandleObserverSubMinutelyJob,
+    onRun: handleObserverSubMinutelyJob,
 });
 
 Devvit.configure({
