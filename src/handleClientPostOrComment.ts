@@ -18,6 +18,10 @@ export async function handleClientPostCreate (event: PostCreate, context: Trigge
         throw new Error("Content Create: handleClientPostCreate should not be called for the control subreddit, check the subreddit name handling logic");
     }
 
+    if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
+        return;
+    }
+
     event = await fixPostTriggerEvent(event, context);
 
     if (!event.post || !event.author?.name) {
@@ -63,6 +67,10 @@ export async function handleClientPostCreate (event: PostCreate, context: Trigge
 export async function handleClientCommentCreate (event: CommentCreate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
         throw new Error("Content Create: handleClientCommentCreate should not be called for the control subreddit, check the subreddit name handling logic");
+    }
+
+    if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
+        return;
     }
 
     const fixedEvent = await fixCommentTriggerEvent(event, context);
@@ -119,6 +127,10 @@ export async function handleClientCommentCreate (event: CommentCreate, context: 
 
 export async function handleClientCommentUpdate (event: CommentUpdate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
+        throw new Error("Content Update: handleClientCommentUpdate should not be called for the control subreddit, check the subreddit name handling logic");
+    }
+
+    if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
         return;
     }
 
@@ -177,6 +189,10 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
 
 export async function handleClientPostUpdate (event: PostUpdate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
+        throw new Error("Content Update: handleClientPostUpdate should not be called for the control subreddit, check the subreddit name handling logic");
+    }
+
+    if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
         return;
     }
 
@@ -276,7 +292,7 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
         const isCurrentlyBanned = await isBanned(context.reddit, subredditName, user.username);
 
         if (!isCurrentlyBanned) {
-            let message = await context.settings.get<string>(AppSetting.BanMessage) ?? CONFIGURATION_DEFAULTS.banMessage;
+            let message = settings[AppSetting.BanMessage] as string | undefined ?? CONFIGURATION_DEFAULTS.banMessage;
             message = message.replaceAll("{subreddit}", subredditName)
                 .replaceAll("{account}", user.username)
                 .replaceAll("{link}", user.username);
