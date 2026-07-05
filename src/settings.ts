@@ -69,6 +69,7 @@ export enum AppSetting {
     OpenAIKey = "openAIKey",
     OpenAIAdminKey = "openAIAdminKey",
     OpenAIProjectId = "openAIProjectId",
+    DisableClientChecks = "disableClientChecks",
 }
 
 export enum ActionType {
@@ -269,6 +270,13 @@ export const appSettings: SettingsFormField[] = [
         name: AppSetting.OpenAIProjectId,
         scope: "app",
         isSecret: true,
+    },
+    {
+        type: "boolean",
+        label: "Disable client post and comment checks",
+        name: AppSetting.DisableClientChecks,
+        helpText: "If enabled, Bot Bouncer will not check posts and comments in client subreddits.",
+        defaultValue: false,
     },
 ];
 
