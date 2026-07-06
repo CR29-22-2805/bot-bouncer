@@ -127,7 +127,7 @@ export async function handleClientCommentCreate (event: CommentCreate, context: 
 
 export async function handleClientCommentUpdate (event: CommentUpdate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
-        throw new Error("Content Update: handleClientCommentUpdate should not be called for the control subreddit, check the subreddit name handling logic");
+        return;
     }
 
     if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
@@ -189,7 +189,7 @@ export async function handleClientCommentUpdate (event: CommentUpdate, context: 
 
 export async function handleClientPostUpdate (event: PostUpdate, context: TriggerContext) {
     if (context.subredditName === CONTROL_SUBREDDIT) {
-        throw new Error("Content Update: handleClientPostUpdate should not be called for the control subreddit, check the subreddit name handling logic");
+        return;
     }
 
     if (await context.settings.get<boolean>(AppSetting.DisableClientChecks)) {
