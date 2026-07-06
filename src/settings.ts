@@ -305,6 +305,8 @@ export interface ControlSubSettings {
     postCreationQueueProcessingEnabled?: boolean;
     postCreationQueueAlertLevel?: number;
     createAISummaryOnNewPosts?: boolean;
+    allowAccountReminders?: boolean;
+    allowRechecks?: boolean;
     allowClassificationQueries?: boolean;
     allowBans?: boolean;
     allowUnbans?: boolean;
@@ -347,6 +349,8 @@ const schema: JSONSchemaType<ControlSubSettings> = {
         postCreationQueueProcessingEnabled: { type: "boolean", nullable: true },
         postCreationQueueAlertLevel: { type: "number", nullable: true },
         createAISummaryOnNewPosts: { type: "boolean", nullable: true },
+        allowAccountReminders: { type: "boolean", nullable: true },
+        allowRechecks: { type: "boolean", nullable: true },
         allowClassificationQueries: { type: "boolean", nullable: true },
         allowBans: { type: "boolean", nullable: true },
         allowUnbans: { type: "boolean", nullable: true },
