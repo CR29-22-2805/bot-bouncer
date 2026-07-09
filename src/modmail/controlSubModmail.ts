@@ -23,7 +23,8 @@ import { handleHighlightedModmail } from "./unhighlighter.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { generateOpenAISummary } from "../aiAnalysis/createAISummary.js";
 import { handleAskAI } from "../aiAnalysis/askAI.js";
-import pluralize from "pluralize";`r`nimport { addPriorAppealHistoryNotice, recordPriorAppealSubmission } from "./priorAppealHistory.js";
+import pluralize from "pluralize";
+import { addPriorAppealHistoryNotice, recordPriorAppealSubmission } from "./priorAppealHistory.js";
 
 export function getPossibleSetStatusValues (): string[] {
     return _.uniq([...FLAIR_MAPPINGS.map(entry => entry.postFlair), ...Object.values(UserStatus)]);
@@ -468,4 +469,5 @@ async function getOverrideForSetStatusCommand (conversationId: string, context: 
     const overrideKey = getOverrideKeyForSetStatusCommand(conversationId);
     return context.redis.get(overrideKey);
 }
+
 
