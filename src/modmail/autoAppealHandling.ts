@@ -8,6 +8,7 @@ import { parseAllDocuments } from "yaml";
 import _ from "lodash";
 import json2md from "json2md";
 import { sendMessageToWebhook } from "../utility.js";
+import { ajvIssuesToConfigIssues, buildConfigErrorDiscordMessage, buildConfigErrorRedditMessage, validateConfigSource, yamlParseIssue, type ConfigValidationIssue } from "../configValidationMessages.js";
 import { ModmailMessage } from "./modmail.js";
 import { evaluateUserAccount, EvaluationResult, getAccountInitialEvaluationResults } from "../handleControlSubAccountEvaluation.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
@@ -172,25 +173,19 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
     let substitutions: Record<string, string | string[]>;
     try {
         substitutions = getSubstitutions(wikiPage.content);
-    } catch {
-        console.error("Failed to parse substitutions from the appeal config wiki page.");
+    } catch (error) {
+        const issues = [yamlParseIssue(error)];
+        console.error("Failed to parse substitutions from the appeal config wiki page.", issues);
 
         await context.reddit.sendPrivateMessage({
             to: username,
-            subject: "Error in appeal configuration",
-            text: json2md([
-                { p: "Unable to parse YAML on the appeal configuration page." },
-                { p: "Please ensure the page is formatted correctly." },
-            ]),
+            subject: "Problem with appeal config after edit",
+            text: buildConfigErrorRedditMessage("appeal", issues),
         });
 
         const webhookUrl = await getControlSubSettings(context).then(s => s.monitoringWebhook);
         if (webhookUrl) {
-            await sendMessageToWebhook(webhookUrl, json2md([
-                { p: `There was an error in the appeal configuration, last updated by ${username}` },
-                { p: "Last known good values will be used until this is corrected." },
-                { p: "The YAML on the appeal configuration page could not be parsed." },
-            ]));
+            await sendMessageToWebhook(webhookUrl, buildConfigErrorDiscordMessage("appeal", username, issues));
         }
 
         return;
@@ -202,9 +197,46 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
         pageToParse = pageToParse.replaceAll(`{{${key}}}`, valueToSubstitute);
     }
 
-    const documents = parseAllDocuments(pageToParse);
+    const sourceIssues = validateConfigSource(pageToParse, "appeal");
+    if (sourceIssues.length > 0) {
+        console.error("Appeal config wiki page contains source validation issues.", sourceIssues);
 
-    const parsedConfigs = _.compact(documents.map(doc => doc.toJSON() as AppealConfig)).filter(item => item.name !== "substitutions");
+        await context.reddit.sendPrivateMessage({
+            to: username,
+            subject: "Problem with appeal config after edit",
+            text: buildConfigErrorRedditMessage("appeal", sourceIssues),
+        });
+
+        const webhookUrl = await getControlSubSettings(context).then(s => s.monitoringWebhook);
+        if (webhookUrl) {
+            await sendMessageToWebhook(webhookUrl, buildConfigErrorDiscordMessage("appeal", username, sourceIssues));
+        }
+
+        return;
+    }
+
+    let documents: ReturnType<typeof parseAllDocuments>;
+    let parsedConfigs: AppealConfig[];
+    try {
+        documents = parseAllDocuments(pageToParse);
+        parsedConfigs = _.compact(documents.map(doc => doc.toJSON() as AppealConfig)).filter(item => item.name !== "substitutions");
+    } catch (error) {
+        const issues = [yamlParseIssue(error)];
+        console.error("Failed to parse appeal config wiki page.", issues);
+
+        await context.reddit.sendPrivateMessage({
+            to: username,
+            subject: "Problem with appeal config after edit",
+            text: buildConfigErrorRedditMessage("appeal", issues),
+        });
+
+        const webhookUrl = await getControlSubSettings(context).then(s => s.monitoringWebhook);
+        if (webhookUrl) {
+            await sendMessageToWebhook(webhookUrl, buildConfigErrorDiscordMessage("appeal", username, issues));
+        }
+
+        return;
+    }
 
     const ajv = new Ajv.default({
         coerceTypes: "array",
@@ -212,10 +244,10 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
 
     const validate = ajv.compile(appealConfigSchema);
 
-    const issues: string[] = [];
+    const issues: ConfigValidationIssue[] = [];
 
     if (!validate(parsedConfigs)) {
-        issues.push(ajv.errorsText(validate.errors));
+        issues.push(...ajvIssuesToConfigIssues(validate.errors));
     }
 
     for (const config of parsedConfigs) {
@@ -224,7 +256,7 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
                 try {
                     new RegExp(regex);
                 } catch (error) {
-                    issues.push(`Invalid regex in currentEvaluatorHitReasonRegex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    issues.push({ code: "CONFIG_INVALID_REGEX", key: "currentEvaluatorHitReasonRegex", message: `Invalid regex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`, suggestion: "Fix or remove the invalid regular expression." });
                 }
             }
         }
@@ -234,7 +266,7 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
                 try {
                     new RegExp(regex);
                 } catch (error) {
-                    issues.push(`Invalid regex in evaluatorHitReasonRegex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    issues.push({ code: "CONFIG_INVALID_REGEX", key: "evaluatorHitReasonRegex", message: `Invalid regex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`, suggestion: "Fix or remove the invalid regular expression." });
                 }
             }
         }
@@ -244,7 +276,7 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
                 try {
                     new RegExp(regex);
                 } catch (error) {
-                    issues.push(`Invalid regex in modNoteTextRegex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    issues.push({ code: "CONFIG_INVALID_REGEX", key: "modNoteTextRegex", message: `Invalid regex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`, suggestion: "Fix or remove the invalid regular expression." });
                 }
             }
         }
@@ -254,7 +286,7 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
                 try {
                     new RegExp(regex);
                 } catch (error) {
-                    issues.push(`Invalid regex in ~modNoteTextRegex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    issues.push({ code: "CONFIG_INVALID_REGEX", key: "~modNoteTextRegex", message: `Invalid regex for config ${config.name}: ${error instanceof Error ? error.message : String(error)}`, suggestion: "Fix or remove the invalid regular expression." });
                 }
             }
         }
@@ -272,20 +304,13 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
 
     await context.reddit.sendPrivateMessage({
         to: username,
-        subject: "Error in appeal configuration",
-        text: json2md([
-            { p: "There was an error in your appeal configuration:" },
-            { ul: issues },
-        ]),
+        subject: "Problem with appeal config after edit",
+        text: buildConfigErrorRedditMessage("appeal", issues),
     });
 
     const webhookUrl = await getControlSubSettings(context).then(s => s.monitoringWebhook);
     if (webhookUrl) {
-        await sendMessageToWebhook(webhookUrl, json2md([
-            { p: `There was an error in the appeal configuration, last updated by ${username}:` },
-            { p: "Last known good values will be used until this is corrected." },
-            { ul: issues },
-        ]));
+        await sendMessageToWebhook(webhookUrl, buildConfigErrorDiscordMessage("appeal", username, issues));
     }
 }
 
