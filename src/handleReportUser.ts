@@ -12,6 +12,7 @@ import { canUserReceiveFeedback } from "./submissionFeedback.js";
 import { isLinkId } from "@devvit/public-api/types/tid.js";
 import { addClassificationQueryToQueue } from "./modmail/classificationQuery.js";
 import { getPostOrCommentById } from "@fsvreddit/fsv-devvit-helpers";
+import { getRecentConfigRevisionUserHit } from "./configRevisionReceipts.js";
 
 enum ReportFormField {
     ReportContext = "reportContext",
@@ -21,7 +22,7 @@ enum ReportFormField {
 
 export const reportFormDefinition: FormFunction = data => ({
     title: `Report u/${data.username} to Bot Bouncer`,
-    description: "Thank you for reporting this user. Our team will review the account manually and take appropriate action.",
+    description: `Thank you for reporting this user. Our team will review the account manually and take appropriate action.${data.configRevisionNotice ? `\n\n${data.configRevisionNotice as string}` : ""}`,
     fields: [
         {
             type: "paragraph",
@@ -153,12 +154,24 @@ export async function handleReportUser (event: MenuItemOnPressEvent, context: Co
     }
 
     const canReceiveFeedback = await canUserReceiveFeedback(currentUser.username, context);
-    const data = {
+    const canSeeConfigRevisionNotice = await isModeratorWithCache(currentUser.username, context, CONTROL_SUBREDDIT);
+    const recentConfigRevisionHit = canSeeConfigRevisionNotice
+        ? await getRecentConfigRevisionUserHit(target.authorName, context)
+        : undefined;
+    const configRevisionNotice = recentConfigRevisionHit
+        ? `Recent evaluator revision context: ${recentConfigRevisionHit.hit.evaluatorName} matched this account under config revision \`${recentConfigRevisionHit.receipt.code}\`, saved ${new Date(recentConfigRevisionHit.receipt.createdAt).toISOString()}.`
+        : undefined;
+
+    const data: JSONObject = {
         username: target.authorName,
         userFeedbackPreference: await getUserFeedbackPreference(currentUser.username, context),
         feedbackHelpText: canReceiveFeedback ? "You must be able to receive chat messages from /u/bot-bouncer to receive this notification" : "We've tried to send feedback for you several times but this hasn't worked. Check to make sure you can receive chats from /u/bot-bouncer. This option will return within 24h.",
         feedbackDisabled: !canReceiveFeedback,
     };
+
+    if (configRevisionNotice) {
+        data.configRevisionNotice = configRevisionNotice;
+    }
 
     context.ui.showForm(reportForm, data);
 }

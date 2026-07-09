@@ -8,6 +8,7 @@ import pluralize from "pluralize";
 import { queueSendFeedback } from "./submissionFeedback.js";
 import { formatTimeSince, isBannedWithCache, sendMessageToWebhook, updateWebhookMessage } from "./utility.js";
 import { isUserSubmitterOrMod } from "./cleanup.js";
+import { ConfigRevisionUserHit } from "./configRevisionReceipts.js";
 import { recordBotPostCreated } from "./scheduler/botPostMonitor.js";
 
 export const statusToFlair: Record<UserStatus, PostFlairTemplate> = {
@@ -37,6 +38,7 @@ export interface AsyncSubmission {
     reportContext?: string;
     evaluatorsChecked: boolean;
     queueTime?: number;
+    configRevisionHit?: ConfigRevisionUserHit;
 }
 
 export async function isUserAlreadyQueued (username: string, context: JobContext): Promise<boolean> {
@@ -240,6 +242,7 @@ export async function queuePostCreation (submissions: AsyncSubmission[], context
             continue;
         }
 
+        submission.queueTime = Date.now();
         submissionsToAdd[submission.user.username] = JSON.stringify(submission);
         queueEntriesToAdd.push({ member: submission.user.username, score });
         results.push(PostCreationQueueResult.Queued);

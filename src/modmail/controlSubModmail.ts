@@ -18,7 +18,7 @@ import { FLAIR_MAPPINGS } from "../handleControlSubFlairUpdate.js";
 import _ from "lodash";
 import { CHECK_DATE_KEY } from "../karmaFarmingSubsCheck.js";
 import { evaluateAccountFromModmail } from "./modmailEvaluaton.js";
-import { handleReversalCommand } from "./evaluatorReversals.js";
+import { handleEmergencyCleanupCommand, handleReversalCommand } from "./evaluatorReversals.js";
 import { handleHighlightedModmail } from "./unhighlighter.js";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { generateOpenAISummary } from "../aiAnalysis/createAISummary.js";
@@ -52,6 +52,11 @@ export async function handleControlSubredditModmail (modmail: ModmailMessage, co
 
     if (modmail.bodyMarkdown.startsWith("!extract")) {
         await dataExtract(modmail, modmail.conversationId, context);
+        return;
+    }
+
+    if (modmail.bodyMarkdown.startsWith("!emergency-cleanup")) {
+        await handleEmergencyCleanupCommand(modmail, context);
         return;
     }
 
