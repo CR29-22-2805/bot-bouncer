@@ -4,6 +4,7 @@ import Ajv, { JSONSchemaType } from "ajv";
 import { addMinutes } from "date-fns";
 import json2md from "json2md";
 import { sendMessageToWebhook } from "./utility.js";
+import { recordConfigEditSession } from "./statistics/moderatorActivityStatistics.js";
 
 export const CONFIGURATION_DEFAULTS = {
     banMessage: `Bots and bot-like accounts are not welcome on /r/{subreddit}.
@@ -455,5 +456,6 @@ export async function validateControlSubConfigChange (username: string, context:
 
     await context.redis.set(redisKey, wikiPage.revisionId);
     await context.redis.global.set(CONTROL_SUB_SETTINGS_CACHE_KEY, wikiPage.content);
+    await recordConfigEditSession(username, context);
     console.log("Control sub settings validated successfully");
 }

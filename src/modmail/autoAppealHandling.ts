@@ -17,6 +17,7 @@ import { getPossibleSetStatusValues } from "./controlSubModmail.js";
 import { getUserSocialLinks } from "devvit-helpers";
 import { sendMessageOnDelay } from "./delayedSend.js";
 import { getEvaluatorVariables } from "../userEvaluation/evaluatorVariables.js";
+import { recordConfigEditSession } from "../statistics/moderatorActivityStatistics.js";
 
 const APPEAL_CONFIG_WIKI_PAGE = "appeal-config";
 const APPEAL_CONFIG_REDIS_KEY = "AppealConfig";
@@ -264,6 +265,7 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
         // Save the valid config to Redis
         await context.redis.set(APPEAL_CONFIG_REDIS_KEY, JSON.stringify(parsedConfigs));
         await context.redis.set(appealConfigRevisionKey, wikiPage.revisionId);
+        await recordConfigEditSession(username, context);
         console.log(`Appeal config updated to revision ${wikiPage.revisionId}`);
         return;
     }

@@ -10,6 +10,7 @@ import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { addSeconds } from "date-fns";
 import { checkNonexistentSubs } from "./subExistenceChecks.js";
 import { recordEvaluatorConfigEditSummary } from "./configEditSummaries.js";
+import { recordConfigEditSession } from "../statistics/moderatorActivityStatistics.js";
 
 const EVALUATOR_VARIABLES_KEY = "evaluatorVariablesHash";
 const EVALUATOR_VARIABLES_YAML_PAGE_ROOT = "evaluator-config";
@@ -240,6 +241,8 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
             revisionReason,
         }, context);
     }
+
+    await recordConfigEditSession(event.data?.username as string | undefined, context);
 
     const newRevisions = _.fromPairs(pages.map(page => [page.name, page.revisionId]));
     await context.redis.hSet(EVALUATOR_VARIABLES_LAST_REVISIONS_KEY, newRevisions);
