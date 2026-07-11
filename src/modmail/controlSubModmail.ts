@@ -376,11 +376,13 @@ async function checkBanOnSub (modmail: ModmailMessage, context: TriggerContext) 
 
         const isBannedOnSub = bannedUser.length > 0;
         let banMessage = `User /u/${modmail.participant} is currently ${isBannedOnSub ? "banned" : "not banned"} on /r/${subredditName}.`;
-        if (!bannedUser[0].note?.startsWith(`Banned by /u/${context.appSlug}`)) {
-            banMessage += " Note: The user's ban was **not** issued by Bot Bouncer.";
-        }
-        if (bannedUser[0].daysLeft !== undefined) {
-            banMessage += ` The user's ban is temporary with ${bannedUser[0].daysLeft} ${pluralize("day", bannedUser[0].daysLeft)} left.`;
+        if (isBannedOnSub) {
+            if (!bannedUser[0].note?.startsWith(`Banned by /u/${context.appSlug}`)) {
+                banMessage += " Note: The user's ban was **not** issued by Bot Bouncer.";
+            }
+            if (bannedUser[0].daysLeft !== undefined) {
+                banMessage += ` The user's ban is temporary with ${bannedUser[0].daysLeft} ${pluralize("day", bannedUser[0].daysLeft)} left.`;
+            }
         }
         message.push({ p: banMessage });
     } catch (error) {
