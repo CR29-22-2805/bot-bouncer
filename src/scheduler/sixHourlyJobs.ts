@@ -11,6 +11,7 @@ import { updateBioStatistics } from "../statistics/userBioStatistics.js";
 import { updateFailedFeedbackStorage } from "../submissionFeedback.js";
 import { analyseBioText } from "../similarBioTextFinder/bioTextFinder.js";
 import { DefinedHandlesStatsInitializerJobData } from "../statistics/definedHandlesStatistics.js";
+import { updateHackedProfileFingerprintStatistics } from "../hackedProfileFingerprints.js";
 
 export const FLAGS_TO_EXCLUDE_FROM_STATS: UserFlag[] = [
     UserFlag.HackedAndRecovered,
@@ -91,19 +92,25 @@ export async function perform6HourlyJobs (_: unknown, context: JobContext) {
 export async function perform6HourlyJobsPart2 (_: unknown, context: JobContext) {
     const allData = await getFullDataStore(context, {
         since: subMonths(new Date(), 3),
-        omitFlags: FLAGS_TO_EXCLUDE_FROM_STATS,
     });
 
     const allEntries = Object.entries(allData)
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         .map(([key, value]) => ({ username: key, data: value } as StatsUserEntry));
+    const statsEntries = allEntries.filter(entry => !entry.data.flags?.some(flag => FLAGS_TO_EXCLUDE_FROM_STATS.includes(flag)));
+
+    const hackedProfileFingerprintUpdate = updateHackedProfileFingerprintStatistics(allEntries, context)
+        .catch((error: unknown) => {
+            console.error("Hacked Profile Fingerprints: Statistics update failed without interrupting other six-hour statistics jobs.", error);
+        });
 
     await Promise.all([
-        updateUsernameStatistics(allEntries, context),
-        updateDisplayNameStatistics(allEntries, context),
-        updateSocialLinksStatistics(allEntries, context),
-        updateBioStatistics(allEntries, context),
-        updateSubmitterStatistics(allEntries, context),
+        updateUsernameStatistics(statsEntries, context),
+        updateDisplayNameStatistics(statsEntries, context),
+        updateSocialLinksStatistics(statsEntries, context),
+        updateBioStatistics(statsEntries, context),
+        updateSubmitterStatistics(statsEntries, context),
+        hackedProfileFingerprintUpdate,
     ]);
 }
 

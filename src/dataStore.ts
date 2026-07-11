@@ -324,6 +324,12 @@ export async function removeRecordOfSubmitterOrMod (username: string, context: T
     console.log(`Cleanup: Removed ${entriesUpdated} ${pluralize("record", entriesUpdated)} of ${username} as submitter or operator`);
 }
 
+export interface InitialAccountProperties {
+    bioText?: string;
+    displayName?: string;
+    socialLinks: UserSocialLink[];
+}
+
 export async function storeInitialAccountProperties (username: string, context: TriggerContext) {
     const userExtended = await getUserExtended(username, context);
 
@@ -351,7 +357,41 @@ export async function storeInitialAccountProperties (username: string, context: 
     await Promise.all(promises);
 }
 
-export async function getInitialAccountProperties (username: string, context: TriggerContext) {
+function isStoredSocialLink (value: unknown): value is UserSocialLink {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const outboundUrl = (value as { outboundUrl?: unknown }).outboundUrl;
+    return outboundUrl === undefined || typeof outboundUrl === "string";
+}
+
+function parseSocialLinks (socialLinks: string | undefined): UserSocialLink[] {
+    if (!socialLinks) {
+        return [];
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(socialLinks);
+        if (!Array.isArray(parsed)) {
+            console.warn("Initial profile properties: Ignored malformed stored social links value.");
+            return [];
+        }
+
+        const validLinks = parsed.filter(isStoredSocialLink);
+        const malformedCount = parsed.length - validLinks.length;
+        if (malformedCount > 0) {
+            console.warn(`Initial profile properties: Ignored ${malformedCount} malformed stored social link record(s).`);
+        }
+
+        return validLinks;
+    } catch {
+        console.warn("Initial profile properties: Ignored malformed stored social links JSON.");
+        return [];
+    }
+}
+
+export async function getInitialAccountProperties (username: string, context: TriggerContext): Promise<InitialAccountProperties> {
     const [bioText, displayName, socialLinks] = await Promise.all([
         context.redis.hGet(BIO_TEXT_STORE, username),
         context.redis.hGet(DISPLAY_NAME_STORE, username),
@@ -361,8 +401,27 @@ export async function getInitialAccountProperties (username: string, context: Tr
     return {
         bioText,
         displayName,
-        socialLinks: socialLinks ? JSON.parse(socialLinks) as UserSocialLink[] : [],
+        socialLinks: parseSocialLinks(socialLinks),
     };
+}
+
+export async function getInitialAccountPropertiesForUsers (usernames: string[], context: TriggerContext): Promise<Record<string, InitialAccountProperties>> {
+    const [bioTexts, displayNames, socialLinks] = await Promise.all([
+        context.redis.hMGet(BIO_TEXT_STORE, usernames),
+        context.redis.hMGet(DISPLAY_NAME_STORE, usernames),
+        context.redis.hMGet(SOCIAL_LINKS_STORE, usernames),
+    ]);
+
+    const results: Record<string, InitialAccountProperties> = {};
+    for (let i = 0; i < usernames.length; i++) {
+        results[usernames[i]] = {
+            bioText: bioTexts[i] ?? undefined,
+            displayName: displayNames[i] ?? undefined,
+            socialLinks: parseSocialLinks(socialLinks[i] ?? undefined),
+        };
+    }
+
+    return results;
 }
 
 export async function addUserToTempDeclineStore (username: string, context: TriggerContext) {
