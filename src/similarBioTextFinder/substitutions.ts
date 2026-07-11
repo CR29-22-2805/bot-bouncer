@@ -63,13 +63,22 @@ const SUBSTITUTIONS = {
     ],
 };
 
+function normalizeBioTextForComparison (input: string): string {
+    return input
+        .normalize("NFKC")
+        .replace(/[\u2018\u2019\u201A\u201B\u0060\u00B4]/gu, "'")
+        .replace(/[\u201C\u201D\u201E\u201F]/gu, "\"")
+        .replace(/\s+/gu, " ")
+        .trim();
+}
+
 export function getSubstitutedText (input: string): string {
-    let substitutedText = input;
+    let substitutedText = normalizeBioTextForComparison(input);
     for (const [replacement, values] of Object.entries(SUBSTITUTIONS)) {
         // Order values by length descending
-        const sortedValues = values.sort((a, b) => b.length - a.length);
+        const sortedValues = [...values].sort((a, b) => b.length - a.length);
         for (const value of sortedValues) {
-            substitutedText = substitutedText.replace(new RegExp(`\\b${value}\\b`, "g"), replacement);
+            substitutedText = substitutedText.replace(new RegExp(`\\b${value}\\b`, "giu"), replacement);
         }
     }
     return substitutedText;
