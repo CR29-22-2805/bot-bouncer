@@ -7,6 +7,7 @@ import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 export interface ModmailMessage {
     conversationId: string;
+    createdAt: Date;
     subject: string;
     participant?: string;
     messageAuthor: string;
@@ -53,6 +54,7 @@ export async function handleModmail (event: ModMail, context: TriggerContext) {
 
     const modmail: ModmailMessage = {
         conversationId: event.conversationId,
+        createdAt: new Date(firstMessage.date ?? Date.now()),
         subject: conversationResponse.conversation.subject,
         participant: conversationResponse.conversation.participant?.name,
         messageAuthor: currentMessage.author.name ?? "",

@@ -4,7 +4,7 @@ import { getUserStatus, UserStatus } from "../dataStore.js";
 import { getSummaryForUser } from "../UserSummary/userSummary.js";
 import { getUserOrUndefined, isModeratorWithCache } from "../utility.js";
 import { CONFIGURATION_DEFAULTS, getControlSubSettings } from "../settings.js";
-import { addDays, addHours, addSeconds, addWeeks, format, subDays, subMinutes } from "date-fns";
+import { addDays, addHours, addSeconds, addWeeks, format, subMinutes } from "date-fns";
 import json2md from "json2md";
 import { ModmailMessage } from "./modmail.js";
 import { dataExtract } from "./dataExtract.js";
@@ -24,6 +24,7 @@ import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { generateOpenAISummary } from "../aiAnalysis/createAISummary.js";
 import { handleAskAI } from "../aiAnalysis/askAI.js";
 import pluralize from "pluralize";
+import { storeAppealRecordsForUser } from "./appealStore.js";
 
 export function getPossibleSetStatusValues (): string[] {
     return _.uniq([...FLAIR_MAPPINGS.map(entry => entry.postFlair), ...Object.values(UserStatus)]);
@@ -201,13 +202,6 @@ export function markdownToText (markdown: json2md.DataObject[], limit = 5000): s
 async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerContext) {
     const username = modmail.messageAuthor;
 
-    const conversationHandledKey = `conversationHandled~${modmail.conversationId}`;
-    if (await context.redis.exists(conversationHandledKey)) {
-        return;
-    }
-
-    await context.redis.set(conversationHandledKey, "true", { expiration: addDays(new Date(), 28) });
-
     if (username === INTERNAL_BOT || username.startsWith(context.appSlug)) {
         return;
     }
@@ -258,7 +252,7 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
     const recentAppealKey = `recentAppealMade~${username}`;
     const recentAppealMade = await context.redis.get(recentAppealKey);
 
-    if (recentAppealMade && new Date(parseInt(recentAppealMade, 10)) > subDays(new Date(), 1)) {
+    if (recentAppealMade) {
         // User has already made an appeal recently, so we should tell the user it's already being handled.
         await context.reddit.modMail.reply({
             body: CONFIGURATION_DEFAULTS.recentAppealMade,
@@ -268,12 +262,10 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
         });
         await context.reddit.modMail.archiveConversation(modmail.conversationId);
         return;
-    } else if (recentAppealMade) {
-        // User has made an appeal, but it's been more than a day, so we can remove the key and allow them to appeal again if they want.
-        await context.redis.del(recentAppealKey);
     }
 
     await storeKeyForAppeal(modmail.conversationId, context);
+    await storeAppealRecordsForUser(modmail, context);
 
     if (currentStatus.userStatus !== UserStatus.Banned && currentStatus.userStatus !== UserStatus.Purged) {
         await addSummaryForUser(modmail.conversationId, username, context);

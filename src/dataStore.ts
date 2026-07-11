@@ -16,6 +16,7 @@ import { ZMember } from "@devvit/protos";
 export const USER_DEFINED_HANDLES_POSTS = "userDefinedHandlesPosts";
 import { getUserSocialLinks, hGetAllChunked } from "devvit-helpers";
 import { removeUserFromReversalsQueue } from "./modmail/evaluatorReversals.js";
+import { deleteAppealRecordsForUser } from "./modmail/appealStore.js";
 
 const TEMP_DECLINE_STORE = "TempDeclineStore";
 const RECENT_CHANGES_STORE = "RecentChangesStore";
@@ -283,6 +284,8 @@ export async function deleteUserStatus (username: string, context: TriggerContex
     await context.redis.hDel(DISPLAY_NAME_STORE, [username]);
     await context.redis.hDel(SOCIAL_LINKS_STORE, [username]);
     await context.redis.hDel(USER_DEFINED_HANDLES_POSTS, [username]);
+
+    await deleteAppealRecordsForUser(username, context);
 
     await context.redis.global.zRem(TEMP_DECLINE_STORE, [username]);
 }

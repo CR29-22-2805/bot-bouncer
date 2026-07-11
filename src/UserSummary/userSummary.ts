@@ -16,6 +16,7 @@ import { getUserSocialLinks } from "devvit-helpers";
 import { getSubmitterSuccessRate } from "../statistics/submitterStatistics.js";
 import { getSummaryExtras } from "./summaryExtras.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT } from "../constants.js";
+import { getAppealTextForUser } from "../modmail/appealStore.js";
 
 function formatDifferenceInDates (start: Date, end: Date) {
     const units: (keyof Duration)[] = ["years", "months", "days"];
@@ -483,6 +484,11 @@ export async function getSummaryForUser (username: string, source: "modmail" | "
     } else {
         summary.push({ h2: "Activity" });
         summary.push({ p: "User has no comments or posts visible on their profile" });
+    }
+
+    const appealRecords = await getAppealTextForUser(username, context);
+    if (appealRecords) {
+        summary.push(...appealRecords);
     }
 
     return summary;
