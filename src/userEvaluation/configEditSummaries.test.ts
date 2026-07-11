@@ -1,4 +1,4 @@
-import { buildEvaluatorConfigEditSummaryWikiPage, nextTopOfHour, summarizeEvaluatorConfigChanges } from "./configEditSummaries.js";
+import { buildEvaluatorConfigEditSummaryWikiPage, findMatchingRevisionReason, nextTopOfHour, normalizeWikiTimestamp, summarizeEvaluatorConfigChanges } from "./configEditSummaries.js";
 
 test("summarizeEvaluatorConfigChanges counts array additions and removals by evaluator module", () => {
     const previousVariables = {
@@ -82,4 +82,90 @@ test("nextTopOfHour returns the next exact hour", () => {
     const actual = nextTopOfHour(new Date(Date.UTC(2026, 5, 20, 14, 7, 35)));
 
     expect(actual.toISOString()).toBe("2026-06-20T15:00:00.000Z");
+});
+test("normalizeWikiTimestamp converts Reddit timestamps expressed in seconds", () => {
+    const expected = Date.UTC(2026, 6, 10, 18, 30);
+    const timestampInSeconds = expected / 1000;
+
+    expect(normalizeWikiTimestamp(timestampInSeconds)).toBe(expected);
+});
+
+test("normalizeWikiTimestamp preserves timestamps already expressed in milliseconds", () => {
+    const timestampInMilliseconds = Date.UTC(2026, 6, 10, 18, 30);
+
+    expect(normalizeWikiTimestamp(timestampInMilliseconds)).toBe(timestampInMilliseconds);
+});
+
+test("findMatchingRevisionReason selects the nearest revision by the same moderator", () => {
+    const updatedAt = Date.UTC(2026, 6, 10, 18, 30);
+
+    const revisions = [
+        {
+            timestamp: updatedAt + 4 * 60 * 1000,
+            updatedBy: "CR29-22-2805",
+            reason: "Later matching revision.",
+        },
+        {
+            timestamp: updatedAt + 60 * 1000,
+            updatedBy: "CR29-22-2805",
+            reason: "Nearest matching revision.",
+        },
+        {
+            timestamp: updatedAt,
+            updatedBy: "different-moderator",
+            reason: "Wrong moderator.",
+        },
+    ];
+
+    expect(
+        findMatchingRevisionReason(
+            revisions,
+            "CR29-22-2805",
+            updatedAt,
+        ),
+    ).toBe("Nearest matching revision.");
+});
+
+test("findMatchingRevisionReason rejects revisions outside the lookup window", () => {
+    const updatedAt = Date.UTC(2026, 6, 10, 18, 30);
+
+    const revisions = [
+        {
+            timestamp: updatedAt + 6 * 60 * 1000,
+            updatedBy: "CR29-22-2805",
+            reason: "Outside the lookup window.",
+        },
+    ];
+
+    expect(
+        findMatchingRevisionReason(
+            revisions,
+            "CR29-22-2805",
+            updatedAt,
+        ),
+    ).toBeUndefined();
+});
+
+test("findMatchingRevisionReason ignores revisions without a usable reason", () => {
+    const updatedAt = Date.UTC(2026, 6, 10, 18, 30);
+
+    const revisions = [
+        {
+            timestamp: updatedAt,
+            updatedBy: "CR29-22-2805",
+        },
+        {
+            timestamp: updatedAt + 60 * 1000,
+            updatedBy: "CR29-22-2805",
+            reason: "Usable revision reason.",
+        },
+    ];
+
+    expect(
+        findMatchingRevisionReason(
+            revisions,
+            "CR29-22-2805",
+            updatedAt,
+        ),
+    ).toBe("Usable revision reason.");
 });
