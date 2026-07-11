@@ -265,13 +265,14 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
     }
 
     await storeKeyForAppeal(modmail.conversationId, context);
-    await storeAppealRecordsForUser(modmail, context);
 
     if (currentStatus.userStatus !== UserStatus.Banned && currentStatus.userStatus !== UserStatus.Purged) {
         await addSummaryForUser(modmail.conversationId, username, context);
         // User is not banned or purged, so we should not send the "Appeal Received" message.
         return;
     }
+
+    await storeAppealRecordsForUser(modmail, context);
 
     const user = await getUserOrUndefined(username, context);
     if (!user) {
