@@ -333,7 +333,7 @@ export async function deleteKeyForAppeal (conversationId: string, context: Trigg
 }
 
 async function addSummaryForUser (conversationId: string, username: string, context: TriggerContext) {
-    const messageText = await getSummaryForUser(username, "modmail", context);
+    const messageText = await getSummaryForUser(username, "modmail", context, conversationId);
 
     const modmailStrings = markdownToText(messageText);
 

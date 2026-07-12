@@ -199,7 +199,7 @@ export function evaluationResultsToBullets (results: EvaluationResult[]) {
     return markdown;
 }
 
-export async function getSummaryForUser (username: string, source: "modmail" | "submission", context: TriggerContext): Promise<json2md.DataObject[]> {
+export async function getSummaryForUser (username: string, source: "modmail" | "submission", context: TriggerContext, conversationId?: string): Promise<json2md.DataObject[]> {
     const extendedUser = await getUserExtended(username, context);
 
     const userStatus = await getUserStatus(extendedUser?.username ?? username, context);
@@ -486,9 +486,11 @@ export async function getSummaryForUser (username: string, source: "modmail" | "
         summary.push({ p: "User has no comments or posts visible on their profile" });
     }
 
-    const appealRecords = await getAppealTextForUser(username, context);
-    if (appealRecords) {
-        summary.push(...appealRecords);
+    if (conversationId) {
+        const appealRecords = await getAppealTextForUser(username, conversationId, context);
+        if (appealRecords) {
+            summary.push(...appealRecords);
+        }
     }
 
     return summary;

@@ -2,6 +2,7 @@ import { TriggerContext } from "@devvit/public-api";
 import { ModmailMessage } from "./modmail.js";
 import { compareDesc, format } from "date-fns";
 import json2md from "json2md";
+import _ from "lodash";
 
 function getAppealHashKeyForUser (username: string): string {
     return `appealRecords~${username}`;
@@ -13,8 +14,12 @@ interface AppealEntry {
     subject: string;
 }
 
+function normalisedConversationId (conversationId: string): string {
+    return conversationId.replace("ModmailConversation_", "");
+}
+
 export async function storeAppealRecordsForUser (modmail: ModmailMessage, context: TriggerContext) {
-    const conversationId = modmail.conversationId.replace("ModmailConversation_", "");
+    const conversationId = normalisedConversationId(modmail.conversationId);
 
     if (!modmail.participant) {
         console.log(`No participant found for modmail conversation ${conversationId}. Cannot store appeal records.`);
@@ -34,24 +39,29 @@ export async function deleteAppealRecordsForUser (username: string, context: Tri
     await context.redis.del(getAppealHashKeyForUser(username));
 }
 
-export async function getAppealTextForUser (username: string, context: TriggerContext): Promise<json2md.DataObject[] | undefined> {
+export async function getAppealTextForUser (username: string, triggerConversationId: string, context: TriggerContext): Promise<json2md.DataObject[] | undefined> {
     const appealRecordsForUser = await context.redis.hGetAll(getAppealHashKeyForUser(username));
-    if (Object.keys(appealRecordsForUser).length === 0) {
+
+    const appealRecords = _.compact(Object.values(appealRecordsForUser).map((value) => {
+        const parsedRecord = JSON.parse(value) as AppealEntry;
+        if (parsedRecord.conversationId === normalisedConversationId(triggerConversationId)) {
+            return;
+        }
+
+        return {
+            conversationId: parsedRecord.conversationId,
+            createdAt: new Date(parsedRecord.createdAt),
+            subject: parsedRecord.subject,
+        };
+    }));
+
+    if (appealRecords.length === 0) {
         return;
     }
 
     const results: json2md.DataObject[] = [
         { h2: `Previous appeals for u/${username}` },
     ];
-
-    const appealRecords = Object.values(appealRecordsForUser).map((value) => {
-        const parsedRecord = JSON.parse(value) as AppealEntry;
-        return {
-            conversationId: parsedRecord.conversationId,
-            createdAt: new Date(parsedRecord.createdAt),
-            subject: parsedRecord.subject,
-        };
-    });
 
     appealRecords.sort((a, b) => compareDesc(a.createdAt, b.createdAt));
 
