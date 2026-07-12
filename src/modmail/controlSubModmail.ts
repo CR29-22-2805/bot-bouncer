@@ -309,7 +309,7 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
     await context.redis.set(recentAppealKey, new Date().getTime().toString(), { expiration: addDays(new Date(), 1) });
 }
 
-function getKeyForAppeal (conversationId: string): string {
+export function getKeyForAppeal (conversationId: string): string {
     return `appeal~${conversationId}`;
 }
 

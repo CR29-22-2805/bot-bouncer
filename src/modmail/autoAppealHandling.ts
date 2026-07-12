@@ -13,10 +13,12 @@ import { evaluateUserAccount, EvaluationResult, getAccountInitialEvaluationResul
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 import { statusToFlair } from "../postCreation.js";
 import { addMinutes, addSeconds, differenceInMonths, format, getYear } from "date-fns";
-import { getPossibleSetStatusValues } from "./controlSubModmail.js";
+import { getKeyForAppeal, getPossibleSetStatusValues } from "./controlSubModmail.js";
 import { getUserSocialLinks } from "devvit-helpers";
 import { sendMessageOnDelay } from "./delayedSend.js";
 import { getEvaluatorVariables } from "../userEvaluation/evaluatorVariables.js";
+import { AppealTrackedOutcome, getAppealOutcomeTrackingIssues, isAppealGrantStatus } from "./appealOutcomeTracking.js";
+import { DelayedMessageCompletionAction } from "./delayedMessageCompletion.js";
 
 const APPEAL_CONFIG_WIKI_PAGE = "appeal-config";
 const APPEAL_CONFIG_REDIS_KEY = "AppealConfig";
@@ -56,9 +58,11 @@ interface AppealConfig {
     archive?: boolean;
     mute?: number;
     highlight?: boolean;
+    trackOutcome?: AppealTrackedOutcome;
 }
 
 const acceptableMuteDurations = [3, 7, 28];
+const acceptableTrackedOutcomes = Object.values(AppealTrackedOutcome);
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/;
 
@@ -107,6 +111,7 @@ const appealConfigSchema: JSONSchemaType<AppealConfig[]> = {
             archive: { type: "boolean", nullable: true },
             mute: { type: "number", enum: acceptableMuteDurations, nullable: true },
             highlight: { type: "boolean", nullable: true },
+            trackOutcome: { type: "string", enum: acceptableTrackedOutcomes, nullable: true },
         },
         additionalProperties: false,
         required: ["name"],
@@ -125,6 +130,7 @@ interface AppealOutcome {
     archive?: boolean;
     mute?: number;
     highlight?: boolean;
+    trackOutcome?: AppealTrackedOutcome;
 }
 
 const defaultAppealOutcome: AppealOutcome = {
@@ -219,6 +225,8 @@ export async function validateAndSaveAppealConfig (username: string, context: Tr
     }
 
     for (const config of parsedConfigs) {
+        issues.push(...getAppealOutcomeTrackingIssues(config));
+
         if (config.currentEvaluatorHitReasonRegex) {
             for (const regex of config.currentEvaluatorHitReasonRegex) {
                 try {
@@ -319,11 +327,21 @@ export enum AppealOutcomeType {
     AppealGranted = "appealGranted",
 }
 
-function isAppealGrantStatus (status: string | undefined): boolean {
-    return status === UserStatus.Organic
-        || status === UserFlag.HackedAndRecovered
-        || status === UserFlag.Scammed
-        || status === UserFlag.FutureNSFW;
+function getTrackedAppealCompletionAction (
+    appealOutcome: AppealOutcome,
+    conversationId: string,
+): DelayedMessageCompletionAction | undefined {
+    if (!appealOutcome.trackOutcome || appealOutcome.archive !== true || !appealOutcome.reply) {
+        return;
+    }
+
+    return {
+        type: "recordAppealOutcome",
+        outcome: appealOutcome.trackOutcome,
+        configName: appealOutcome.name,
+        conversationId,
+        activeAppealKey: getKeyForAppeal(conversationId),
+    };
 }
 
 export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDetails, context: TriggerContext): Promise<AppealOutcomeType> {
@@ -564,6 +582,7 @@ export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDe
             archive: matchedAppealConfig.archive,
             mute: matchedAppealConfig.mute,
             highlight: matchedAppealConfig.highlight,
+            trackOutcome: matchedAppealConfig.trackOutcome,
         };
     } else {
         console.log(`Appeals: No specific appeal config matched for user ${username}, using default reply.`);
@@ -593,6 +612,7 @@ export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDe
 
     if (appealOutcome.reply) {
         let replyMessage = `${formatPlaceholders(appealOutcome.reply, userDetails)}\n\n`;
+        const completionAction = getTrackedAppealCompletionAction(appealOutcome, modmail.conversationId);
 
         if (appealOutcome.replyDelay) {
             let sendAt: Date;
@@ -608,6 +628,7 @@ export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDe
                 message: replyMessage,
                 archive: appealOutcome.archive,
                 sendAt,
+                completionAction,
             });
         } else {
             if (appealOutcome.mute) {
@@ -623,6 +644,7 @@ export async function handleAppeal (modmail: ModmailMessage, userDetails: UserDe
                 message: replyMessage,
                 archive: appealOutcome.archive,
                 sendAt: addSeconds(new Date(), 20),
+                completionAction,
             });
         }
     }

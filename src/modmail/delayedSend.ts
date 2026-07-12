@@ -2,28 +2,45 @@ import { JobContext, JSONObject, ScheduledJobEvent, TriggerContext } from "@devv
 import { addMinutes, addSeconds } from "date-fns";
 import json2md from "json2md";
 import { ControlSubredditJob } from "../constants.js";
+import { DelayedMessageCompletionAction, isDelayedMessageCompletionRelevant, runDelayedMessageCompletion } from "./delayedMessageCompletion.js";
 
 interface DelayedMessageOptions {
     conversationId: string;
     message: string;
     sendAt: Date;
     archive?: boolean;
+    completionAction?: DelayedMessageCompletionAction;
 }
 
 const DELAYED_MESSAGE_QUEUE = "delayedMessageQueue";
 
+async function deliverDelayedMessage (
+    params: DelayedMessageOptions,
+    context: TriggerContext | JobContext,
+): Promise<void> {
+    if (params.completionAction && !await isDelayedMessageCompletionRelevant(params.completionAction, context)) {
+        console.log(`Delayed Messages: Skipped obsolete message for conversation ${params.conversationId}`);
+        return;
+    }
+
+    await context.reddit.modMail.reply({
+        conversationId: params.conversationId,
+        isAuthorHidden: true,
+        body: params.message,
+    });
+
+    if (params.archive) {
+        await context.reddit.modMail.archiveConversation(params.conversationId);
+    }
+
+    if (params.completionAction) {
+        await runDelayedMessageCompletion(params.completionAction, context);
+    }
+}
+
 export async function sendMessageOnDelay (context: TriggerContext, params: DelayedMessageOptions) {
     if (params.sendAt <= addSeconds(new Date(), 10)) {
-        await context.reddit.modMail.reply({
-            conversationId: params.conversationId,
-            isAuthorHidden: true,
-            body: params.message,
-        });
-
-        if (params.archive) {
-            await context.reddit.modMail.archiveConversation(params.conversationId);
-        }
-
+        await deliverDelayedMessage(params, context);
         return;
     }
 
@@ -61,15 +78,7 @@ export async function processDelayedMessages (event: ScheduledJobEvent<JSONObjec
     const firstMessage = JSON.parse(queuedMessages[0].member) as DelayedMessageOptions;
     await context.redis.zRem(DELAYED_MESSAGE_QUEUE, [queuedMessages[0].member]);
 
-    await context.reddit.modMail.reply({
-        conversationId: firstMessage.conversationId,
-        isAuthorHidden: true,
-        body: firstMessage.message,
-    });
-
-    if (firstMessage.archive) {
-        await context.reddit.modMail.archiveConversation(firstMessage.conversationId);
-    }
+    await deliverDelayedMessage(firstMessage, context);
 
     if (queuedMessages.length > 1) {
         await context.scheduler.runJob({
