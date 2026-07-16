@@ -17,6 +17,7 @@ import { getSubmitterSuccessRate } from "../statistics/submitterStatistics.js";
 import { getSummaryExtras } from "./summaryExtras.js";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT } from "../constants.js";
 import { getAppealTextForUser } from "../modmail/appealStore.js";
+import { getErrorDiagnostics } from "../errorDiagnostics.js";
 
 function formatDifferenceInDates (start: Date, end: Date) {
     const units: (keyof Duration)[] = ["years", "months", "days"];
@@ -316,7 +317,9 @@ export async function getSummaryForUser (username: string, source: "modmail" | "
                 limit: 100,
             }).all(),
         ]);
-    } catch {
+    } catch (error) {
+        console.error(`User Summary: Error fetching user activity for ${username}.`, { source, ...getErrorDiagnostics(error) });
+
         if (source === "modmail") {
             const initialEvaluatorsMatched = await getAccountInitialEvaluationResults(username, context);
             summary.push({ p: `At the point of initial evaluation, user matched ${initialEvaluatorsMatched.length} ${pluralize("evaluator", initialEvaluatorsMatched.length)}` });
