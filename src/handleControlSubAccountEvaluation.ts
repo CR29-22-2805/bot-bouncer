@@ -8,7 +8,7 @@ import { addSeconds, addWeeks, subMonths } from "date-fns";
 import _ from "lodash";
 import { getSubmitterSuccessRate } from "./statistics/submitterStatistics.js";
 import { conditionallyCompressString, conditionallyDecompressString } from "./utility.js";
-import { getControlSubSettings } from "./settings.js";
+import { AppSetting, getControlSubSettings } from "./settings.js";
 import { getPostOrCommentById, getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
 
 export interface EvaluatorStats {
@@ -72,8 +72,13 @@ export async function evaluateUserAccount (options: EvaluateUserAccountOptions, 
     }
 
     const socialLinks = await getSocialLinksWithCache(user.username, context);
+    const openAIEvaluationKey = await context.settings.get<string>(AppSetting.OpenAIEvaluationKey);
 
     await Promise.all(_.compact(matchedEvaluators).map(async (evaluator) => {
+        if (evaluator.needsOpenAiKey && openAIEvaluationKey) {
+            evaluator.setOpenAiKey(openAIEvaluationKey);
+        }
+
         evaluator.setHistory(userItems);
         evaluator.setSocialLinks(socialLinks);
         let isABot: boolean;

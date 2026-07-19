@@ -359,10 +359,16 @@ async function checkAndReportPotentialBot (username: string, target: Post | Comm
 
     let socialLinks: UserSocialLink[] | undefined;
 
+    const openAIEvaluationKey = await context.settings.get<string>(AppSetting.OpenAIEvaluationKey);
+
     for (const Evaluator of ALL_RELEVANT_EVALUTORS) {
         const evaluator = new Evaluator(context, [], socialLinks, variables);
         if (evaluator.evaluatorDisabled()) {
             continue;
+        }
+
+        if (evaluator.needsOpenAiKey && openAIEvaluationKey) {
+            evaluator.setOpenAiKey(openAIEvaluationKey);
         }
 
         if (target instanceof Post) {

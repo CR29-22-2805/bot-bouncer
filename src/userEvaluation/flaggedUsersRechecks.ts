@@ -9,7 +9,7 @@ import { addMinutes, addSeconds } from "date-fns";
 import { ControlSubredditJob } from "../constants.js";
 import pluralize from "pluralize";
 import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
-import { getControlSubSettings } from "../settings.js";
+import { AppSetting, getControlSubSettings } from "../settings.js";
 
 const FLAGGED_RECHECKS_QUEUE_KEY = "flaggedRechecksQueue";
 
@@ -123,11 +123,17 @@ export async function recheckFlaggedUser (username: string, context: JobContext)
     let matchesEvaluator = false;
     let userSocialLinks: UserSocialLink[] | undefined;
 
+    const openAIEvaluationKey = await context.settings.get<string>(AppSetting.OpenAIEvaluationKey);
+
     for (const Evaluator of FLAGGED_USER_RECHECKS_EVALUATORS) {
         const evaluator = new Evaluator(context, userHistory, userSocialLinks, variables);
 
         if (evaluator.evaluatorDisabled()) {
             continue;
+        }
+
+        if (evaluator.needsOpenAiKey && openAIEvaluationKey) {
+            evaluator.setOpenAiKey(openAIEvaluationKey);
         }
 
         if (!await Promise.resolve(evaluator.preEvaluateUser(user))) {
