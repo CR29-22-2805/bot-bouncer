@@ -1,12 +1,13 @@
 import { JobContext, JSONObject, ScheduledJobEvent } from "@devvit/public-api";
 import { getFullDataStore, UserStatus } from "../dataStore.js";
 import _ from "lodash";
-import { addSeconds, format, subDays } from "date-fns";
+import { addMinutes, addSeconds, format, subDays } from "date-fns";
 import { ALL_RELEVANT_EVALUTORS, CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import { EvaluationResult, getAccountInitialEvaluationResults } from "../handleControlSubAccountEvaluation.js";
 import json2md from "json2md";
 import { getEvaluatorVariables } from "../userEvaluation/evaluatorVariables.js";
 import { FLAGS_TO_EXCLUDE_FROM_STATS } from "../scheduler/sixHourlyJobs.js";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 const ACCURACY_QUEUE = "evaluatorAccuracyQueue";
 const ACCURACY_STORE = "evaluatorAccuracyStore";
