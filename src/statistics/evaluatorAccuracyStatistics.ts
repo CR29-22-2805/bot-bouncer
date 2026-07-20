@@ -59,6 +59,12 @@ function getEvaluationResultsKey (evaluationResult: EvaluationResult): string {
 }
 
 export async function buildEvaluatorAccuracyStatistics (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Evaluator Accuracy Statistics: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
+    }
+
     if (event.data?.firstRun) {
         console.log("Evaluator Accuracy Statistics: First run, gathering usernames.");
         await context.redis.del(ACCURACY_QUEUE, ACCURACY_STORE);
@@ -66,7 +72,7 @@ export async function buildEvaluatorAccuracyStatistics (event: ScheduledJobEvent
         await context.scheduler.runJob({
             name: ControlSubredditJob.EvaluatorAccuracyStatistics,
             runAt: addSeconds(new Date(), 2),
-            data: { firstRun: false },
+            data: { firstRun: false, jobGuid: crypto.randomUUID() },
         });
         return;
     }

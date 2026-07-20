@@ -1,5 +1,5 @@
 import { Comment, JobContext, JSONObject, Post, RedisClient, ScheduledJobEvent, SettingsValues, TriggerContext } from "@devvit/public-api";
-import { addDays, addSeconds, formatDate, subDays, subMinutes, subWeeks } from "date-fns";
+import { addDays, addMinutes, addSeconds, formatDate, subDays, subMinutes, subWeeks } from "date-fns";
 import pluralize from "pluralize";
 import { getRecentlyChangedUsers, getUserStatus, isUserInTempDeclineStore, UserDetails, UserStatus } from "./dataStore.js";
 import { setCleanupForUser } from "./cleanup.js";
@@ -9,7 +9,7 @@ import { ClientSubredditJob } from "./constants.js";
 import _ from "lodash";
 import { recordBanForSummary, recordUnbanForSummary, removeRecordOfBanForSummary } from "./modmail/actionSummary.js";
 import { expireKeyAt, hasPermissions, isBanned, isContributor } from "devvit-helpers";
-import { filterContent, getPostOrCommentById } from "@fsvreddit/fsv-devvit-helpers";
+import { filterContent, getPostOrCommentById, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 const UNBAN_WHITELIST = "UnbanWhitelist";
 const BAN_STORE = "BanStore";
@@ -342,6 +342,12 @@ export async function handleClassificationChanges (event: ScheduledJobEvent<JSON
         return;
     }
 
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Classification Update: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
+    }
+
     await context.redis.set(recentlyRunKey, "true", { expiration: addSeconds(new Date(), 30) });
 
     const runLimit = addSeconds(new Date(), 15);
@@ -405,6 +411,7 @@ export async function handleClassificationChanges (event: ScheduledJobEvent<JSON
         await context.scheduler.runJob({
             name: ClientSubredditJob.HandleClassificationChanges,
             runAt: addSeconds(new Date(), 5),
+            data: { jobGuid: crypto.randomUUID() },
         });
     } else {
         console.log(`Classification Update: All ${processed} ${pluralize("user", processed)} in reclassification queue processed.`);

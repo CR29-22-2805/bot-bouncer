@@ -4,7 +4,7 @@ import { ClientSubredditJob, CONTROL_SUBREDDIT, ControlSubredditJob, ObserverSub
 import { handleExternalSubmissionsPageUpdate } from "./externalSubmissions.js";
 import { getControlSubSettings } from "./settings.js";
 import { addDays, addMinutes, addSeconds, isSameDay } from "date-fns";
-import { forceEvaluatorVariablesRefresh } from "./userEvaluation/evaluatorVariables.js";
+import { forceEvaluatorVariablesRefresh, getEvaluatorVariables } from "./userEvaluation/evaluatorVariables.js";
 import { storeRecordOfContentCreationGracePeriod } from "./handleClientSubredditClassificationChanges.js";
 import { isModerator } from "devvit-helpers";
 import json2md from "json2md";

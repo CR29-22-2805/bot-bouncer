@@ -1,8 +1,9 @@
-import { JobContext } from "@devvit/public-api";
+import { JobContext, JSONObject, ScheduledJobEvent } from "@devvit/public-api";
 import { CONTROL_SUBREDDIT, ControlSubredditJob } from "../constants.js";
 import _ from "lodash";
-import { addHours, subDays } from "date-fns";
+import { addHours, addMinutes, subDays } from "date-fns";
 import pluralize from "pluralize";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
 const CONFIG_EDIT_SUMMARIES_KEY = "evaluatorConfigEditSummaries";
 const CONFIG_EDIT_SUMMARY_JOB_QUEUED_KEY = "evaluatorConfigEditSummaryJobQueued";
@@ -302,6 +303,7 @@ async function queueSummaryPageUpdate (context: JobContext, now = new Date()) {
     await context.scheduler.runJob({
         name: ControlSubredditJob.UpdateEvaluatorConfigEditSummaryPage,
         runAt,
+        data: { jobGuid: crypto.randomUUID() },
     });
 }
 
@@ -325,9 +327,15 @@ export async function recordEvaluatorConfigEditSummary (options: RecordEvaluator
     await queueSummaryPageUpdate(context, now);
 }
 
-export async function updateEvaluatorConfigEditSummaryPage (_: unknown, context: JobContext) {
+export async function updateEvaluatorConfigEditSummaryPage (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
         throw new Error("Evaluator Config Edit Summaries: This job should only be run in the control subreddit.");
+    }
+
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Evaluator Config Edit Summaries: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
     }
 
     const now = new Date();
