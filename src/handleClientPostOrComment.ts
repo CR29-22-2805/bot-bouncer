@@ -237,7 +237,8 @@ export async function handleClientPostUpdate (event: PostUpdate, context: Trigge
 
 async function handleContentCreation (username: string, currentStatus: UserDetails, targetId: string, context: TriggerContext) {
     console.log(`Content Create: ℹ️ User ${username} has status ${currentStatus.userStatus}.`);
-    if (currentStatus.userStatus !== UserStatus.Banned) {
+    const isBannable = currentStatus.userStatus === UserStatus.Banned || (currentStatus.userStatus === UserStatus.Purged && currentStatus.lastStatus === UserStatus.Banned);
+    if (!isBannable) {
         return;
     }
 
@@ -253,7 +254,7 @@ async function handleContentCreation (username: string, currentStatus: UserDetai
         return;
     }
 
-    console.log(`Content Create: Status for ${username} is marked as banned`);
+    console.log(`Content Create: Status for ${username} is marked as ${currentStatus.userStatus}`);
 
     const subredditName = context.subredditName ?? await context.reddit.getCurrentSubredditName();
 
