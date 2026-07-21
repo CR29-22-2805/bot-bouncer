@@ -6,7 +6,7 @@ import { getAllKnownUsers, getUserStatus, UserDetails, UserStatus } from "./data
 import { evaluateUserAccount, storeAccountInitialEvaluationResults, userHasContinuousNSFWHistory } from "./handleControlSubAccountEvaluation.js";
 import { getControlSubSettings } from "./settings.js";
 import { addMinutes, addSeconds, differenceInMinutes, subMinutes, subWeeks } from "date-fns";
-import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
+import { getUserExtended, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 import { AsyncSubmission, PostCreationQueueResult, queuePostCreation } from "./postCreation.js";
 import pluralize from "pluralize";
 import json2md from "json2md";
@@ -217,6 +217,12 @@ async function rebalanceCohorts (context: JobContext) {
 }
 
 export async function evaluateKarmaFarmingSubs (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Karma Farming Subs: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
+    }
+
     if (event.data?.firstRun && !event.data.cohort) {
         try {
             await rebalanceCohorts(context);
@@ -230,12 +236,20 @@ export async function evaluateKarmaFarmingSubs (event: ScheduledJobEvent<JSONObj
             context.scheduler.runJob({
                 name: ControlSubredditJob.EvaluateKarmaFarmingSubs,
                 runAt: new Date(),
-                data: { firstRun: true, cohort: "evens" },
+                data: {
+                    firstRun: true,
+                    cohort: "evens",
+                    jobGuid: crypto.randomUUID(),
+                },
             }),
             context.scheduler.runJob({
                 name: ControlSubredditJob.EvaluateKarmaFarmingSubs,
                 runAt: new Date(),
-                data: { firstRun: true, cohort: "odds" },
+                data: {
+                    firstRun: true,
+                    cohort: "odds",
+                    jobGuid: crypto.randomUUID(),
+                },
             }),
         ]);
         return;
@@ -313,7 +327,7 @@ export async function evaluateKarmaFarmingSubs (event: ScheduledJobEvent<JSONObj
         await context.scheduler.runJob({
             name: ControlSubredditJob.EvaluateKarmaFarmingSubs,
             runAt: new Date(),
-            data: { firstRun: false, cohort },
+            data: { firstRun: false, cohort, jobGuid: crypto.randomUUID() },
         });
     } else {
         console.log(`Karma Farming Subs: Finished checking remaining ${processed} ${pluralize("account", processed)}.`);

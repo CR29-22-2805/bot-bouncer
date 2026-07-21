@@ -6,8 +6,8 @@ import { compressData, sendMessageToWebhook } from "../utility.js";
 import json2md from "json2md";
 import { getControlSubSettings } from "../settings.js";
 import { EvaluateBotGroupAdvanced } from "@fsvreddit/bot-bouncer-evaluation/dist/userEvaluation/EvaluateBotGroupAdvanced.js";
-import { getUserExtended } from "@fsvreddit/fsv-devvit-helpers";
-import { addSeconds } from "date-fns";
+import { getUserExtended, hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
+import { addMinutes, addSeconds } from "date-fns";
 import { checkNonexistentSubs } from "./subExistenceChecks.js";
 import { recordEvaluatorConfigEditSummary } from "./configEditSummaries.js";
 
@@ -81,6 +81,12 @@ export async function getEvaluatorVariable<T> (variableName: string, context: Tr
 export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
     if (context.subredditName !== CONTROL_SUBREDDIT) {
         throw new Error("Evaluator Variables: This job should only be run in the control subreddit.");
+    }
+
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Evaluator Variables: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
     }
 
     const controlSubSettings = await getControlSubSettings(context);
@@ -271,12 +277,17 @@ export async function updateEvaluatorVariablesFromWikiHandler (event: ScheduledJ
     await context.scheduler.runJob({
         name: ControlSubredditJob.ConditionalStatsUpdate,
         runAt: addSeconds(new Date(), 10),
+        data: { jobGuid: crypto.randomUUID() },
     });
 
     await context.scheduler.runJob({
         name: ControlSubredditJob.EvaluatorReDoSChecker,
         runAt: addSeconds(new Date(), 5),
-        data: { firstRun: true, modName: event.data?.username ?? "unknown" },
+        data: {
+            firstRun: true,
+            modName: event.data?.username ?? "unknown",
+            jobGuid: crypto.randomUUID(),
+        },
     });
 
     const previouslyFailed = await context.redis.exists(failedEvaluatorVariablesKey);

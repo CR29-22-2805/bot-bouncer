@@ -300,6 +300,7 @@ async function handleModmailFromUser (modmail: ModmailMessage, context: TriggerC
                     username,
                     conversationId: modmail.conversationId,
                     userMessage: modmail.bodyMarkdown,
+                    jobGuid: crypto.randomUUID(),
                 },
                 runAt: addSeconds(new Date(), 5),
             });

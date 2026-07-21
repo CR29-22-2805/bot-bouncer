@@ -1,10 +1,17 @@
 import { JobContext, JSONObject, ScheduledJobEvent } from "@devvit/public-api";
 import { getFullDataStore, UserStatus } from "../dataStore.js";
-import { addDays, addHours, format, subDays } from "date-fns";
+import { addDays, addHours, addMinutes, format, subDays } from "date-fns";
 import json2md from "json2md";
 import { StatsUserEntry } from "../scheduler/sixHourlyJobs.js";
+import { hasTriggerBeenHandled } from "@fsvreddit/fsv-devvit-helpers";
 
-export async function pendingUserFinder (_event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+export async function pendingUserFinder (event: ScheduledJobEvent<JSONObject | undefined>, context: JobContext) {
+    const jobGuid = event.data?.jobGuid as string | undefined;
+    if (jobGuid && await hasTriggerBeenHandled(context.redis, `job:${jobGuid}`, { expiration: addMinutes(new Date(), 5) })) {
+        console.warn(`Pending User Finder: Job with guid ${jobGuid} has already been handled, skipping.`);
+        return;
+    }
+
     const runRecentlyKey = "pendingUserFinderLastRunValue";
     if (await context.redis.exists(runRecentlyKey)) {
         return;
